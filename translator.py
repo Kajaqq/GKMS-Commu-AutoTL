@@ -1,56 +1,35 @@
-from google import genai
-from google.genai import types as genai_types
+import os
 
-from config import GEMINI_API_KEY, VERTEX_AI_PROJECT
-from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
+from google import genai
+from dotenv import load_dotenv
+
+from config import ModelConfig
 
 # --- API Setup ---
-if VERTEX_AI_PROJECT:
-    flex_mode = genai_types.HttpOptions(
-        headers={
-            "X-Vertex-AI-LLM-Request-Type": "shared",
-            "X-Vertex-AI-LLM-Shared-Request-Type": "flex",
-        }
-    )
-    client = genai.Client(
-        vertexai=True, project=VERTEX_AI_PROJECT, http_options=flex_mode
-    )
-else:
-    client = genai.Client(api_key=GEMINI_API_KEY)
+load_dotenv()
+USING_VERTEX_AI = ModelConfig.is_vertex_ai()
+GEMINI_API_KEY = os.getenv("AI_STUDIO_API_KEY", None)
+AI_MODEL = ModelConfig.GEMINI_MODEL
 
 
-def _get_model_config(temperature):
-    safety_config = [
-        genai_types.SafetySetting(
-            category=genai_types.HarmCategory.HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT,
-            threshold=genai_types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-        genai_types.SafetySetting(
-            category=genai_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-            threshold=genai_types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-        genai_types.SafetySetting(
-            category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-            threshold=genai_types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-        genai_types.SafetySetting(
-            category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-            threshold=genai_types.HarmBlockThreshold.BLOCK_NONE,
-        ),
-    ]
-    return genai_types.GenerateContentConfig(
-        temperature=temperature,
-        system_instruction=TRANSLATION_SYSTEM_INSTRUCTIONS,
-        safety_settings=safety_config,
-    )
+def get_client():
+    if GEMINI_API_KEY:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+    elif USING_VERTEX_AI:
+        flex_mode = ModelConfig.flex_mode
+        client = genai.Client(vertexai=True, http_options=flex_mode)
+    else:
+        raise ValueError("No API key or Vertex AI Project provided")
+    return client
 
 
-def translate_batch_with_gemini(batch_prompt, model_name, temperature):
-    """Calls the new Gemini API client with a single batch prompt."""
-    model_config = _get_model_config(temperature)
+def translate_batch_with_gemini(batch_prompt, model_name=AI_MODEL):
+    """Calls the Gemini API client with a single batch prompt."""
+    client = get_client()
+    generation_config = ModelConfig.generation_config
     try:
         response = client.models.generate_content(
-            model=model_name, contents=batch_prompt, config=model_config
+            model=model_name, contents=batch_prompt, config=generation_config
         )
         if response and response.text:
             return response.text.strip()

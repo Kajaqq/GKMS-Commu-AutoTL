@@ -16,14 +16,21 @@ uv run process_excel_files.py
 Outputs the translated files in the 'OUT' directory.
 
 ## Configuration
-This script uses the `config.py` file to set configuration variables.
+This script uses the `config.py` file to set non-sensitive configuration variables. 
+
+For API keys, it uses `.env` 
+
 It supports both Google AI Studio and Vertex AI API.
 
 ### For Google AI Studio usage:
-Set the `GEMINI_API_KEY` variable in the 'config.py' file.
+Rename `.env.example` to `.env` 
+
+Set the `GEMINI_API_KEY` variable in the `.env` file.
 
 ### For Vertex AI usage:
-Set the `VERTEX_AI_PROJECT` variable in the 'config.py' file.
+Rename `.env.example` to `.env` 
+
+Set the `GOOGLE_CLOUD_PROJECT` variable in the `.env` file.
 
 ## TODO:
   - Load the speaking styles dynamically, based on which characters are in a given commu. 

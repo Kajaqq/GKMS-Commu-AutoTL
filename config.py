@@ -1,29 +1,72 @@
-# Google AI Studio API Key
-GEMINI_API_KEY = "API_KEY"
-GEMINI_MODEL = "gemini-3-flash-preview"
+import os
+from abc import ABC
 
-# Vertex AI stuff
-VERTEX_AI_PROJECT = "PROJECT_NAME"
+from google.genai import types as genai_types
 
-# Language settings
-TARGET_LANGUAGE = "English"
-SOURCE_LANGUAGE = "Japanese"
+from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
 
-# The local folder path containing the Excel files (.xlsx) you want to translate
-SOURCE_FOLDER_PATH = "IN"
 
-# The local folder path where you want to save the translated Excel files
-OUTPUT_FOLDER_PATH = "OUT"
+class ModelConfig(ABC):
+    GEMINI_MODEL = "gemini-3-flash-preview"
+    # Model Temperature - for Gemini 3 series, keep it as 1.0, for older models try 0.1-0.3
+    TEMPERATURE = 1.0
 
-# Temperature (0.0 to 1.0, Gemini 3 series strongly prefers 1.0)
-TEMPERATURE = 1.0
+    # System Instructions to use
+    SYSTEM_INSTRUCTIONS = TRANSLATION_SYSTEM_INSTRUCTIONS
 
-# Headers for the source and target columns
-SOURCE_HEADER = "text"
-TARGET_HEADER = "translated text"
+    # Used with Vertex AI, helps with rate-limiting errors
+    flex_mode = genai_types.HttpOptions(
+        headers={
+            "X-Vertex-AI-LLM-Request-Type": "shared",
+            "X-Vertex-AI-LLM-Shared-Request-Type": "flex",
+        }
+    )
 
-# Header for the speaker identification column
-SPEAKER_HEADER = "translated name"
+    # Disable blocking content that the API deems 'unsafe'
+    BLOCK_NONE = genai_types.HarmBlockThreshold.BLOCK_NONE
+    safety_config = [
+        genai_types.SafetySetting(
+            category=genai_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            threshold=BLOCK_NONE,
+        ),
+        genai_types.SafetySetting(
+            category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+            threshold=BLOCK_NONE,
+        ),
+        genai_types.SafetySetting(
+            category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+            threshold=BLOCK_NONE,
+        ),
+    ]
+    generation_config = genai_types.GenerateContentConfig(
+        temperature=TEMPERATURE,
+        system_instruction=SYSTEM_INSTRUCTIONS,
+        safety_settings=safety_config,
+    )
 
-# Header for the message type column (assuming column A)
-TYPEMESSAGE_HEADER = "type"
+    @staticmethod
+    def is_vertex_ai() -> bool:
+        vertex_project = os.getenv("GOOGLE_CLOUD_PROJECT", None)
+        return True if vertex_project else False
+
+
+class TranslatorConfig:
+    # Language settings
+    TARGET_LANGUAGE = "English"
+    SOURCE_LANGUAGE = "Japanese"
+
+    # xlsx files paths
+    SOURCE_FOLDER_PATH = "IN"
+    OUTPUT_FOLDER_PATH = "OUT"
+
+
+class ExcelConfig:
+    # Headers for the source and target columns
+    SOURCE_HEADER = "text"
+    TARGET_HEADER = "translated text"
+
+    # Header for the speaker identification column
+    SPEAKER_HEADER = "translated name"
+
+    # Header for the message type column
+    TYPEMESSAGE_HEADER = "type"

@@ -6,82 +6,57 @@ import openpyxl
 import pandas as pd
 
 # --- Import Configuration ---
-from character_styles import CHARACTER_SPEAKING_STYLES
-from config import (
-    GEMINI_API_KEY,
-    GEMINI_MODEL,
-    OUTPUT_FOLDER_PATH,
-    SOURCE_FOLDER_PATH,
-    SOURCE_HEADER,
-    SOURCE_LANGUAGE,
-    SPEAKER_HEADER,
-    TARGET_HEADER,
-    TARGET_LANGUAGE,
-    TEMPERATURE,
-    TYPEMESSAGE_HEADER,
-)
+from config import TranslatorConfig, ExcelConfig
 from dictionary import NAME_TERM_TRANSLATIONS
-from formatting import (
-    ADV_PEVENT_CHOICE_LINE1_CHARS,
-    ADV_PEVENT_CHOICE_LINE2_CHARS,
-    ADV_PEVENT_CHOICE_LINE3_CHARS,
-    ADV_PEVENT_MAX_CHARS,
-    ADV_PEVENT_MAX_CHOICE_BREAKS,
-    ADV_PEVENT_PREFIX,
-    ADV_UNIT_PREFIX,
-    DEFAULT_MAX_CHARS_PER_LINE,
-    DEFAULT_MAX_DIALOGUE_LINE_BREAKS,
-    DIALOGUE_TYPES,
-    OTHER_MAX_CHARS,
-    OTHER_MAX_CHOICE_BREAKS,
-    wrap_text,
-)
+from character_styles import CHARACTER_SPEAKING_STYLES
 from prompts import LINE_FORMAT_TEMPLATE, TRANSLATION_PROMPT_TEMPLATE
+from formatting import *
 from translator import translate_batch_with_gemini
+
+HEADER_SEARCH_ROWS = 10
+
+
+def normalize_cell(value):
+    return str(value).strip().lower()
+
+
+def find_column(columns, header):
+    return next((col for col in columns if normalize_cell(col) == header.lower()), None)
+
+
+def wrap_translation(text, file_name, message_type):
+    return wrap_text(
+        text,
+        file_name,
+        message_type,
+        DEFAULT_MAX_CHARS_PER_LINE,
+        DIALOGUE_TYPES,
+        DEFAULT_MAX_DIALOGUE_LINE_BREAKS,
+        ADV_PEVENT_PREFIX,
+        ADV_PEVENT_MAX_CHARS,
+        ADV_PEVENT_MAX_CHOICE_BREAKS,
+        OTHER_MAX_CHARS,
+        OTHER_MAX_CHOICE_BREAKS,
+        ADV_UNIT_PREFIX,
+        ADV_PEVENT_CHOICE_LINE1_CHARS,
+        ADV_PEVENT_CHOICE_LINE2_CHARS,
+        ADV_PEVENT_CHOICE_LINE3_CHARS,
+    )
 
 
 # --- Main Processing Logic ---
 def process_excel_files_in_folder(
-    source_folder_path,
-    output_folder_path,
-    gemini_model,
-    api_key,
-    source_lang,
-    target_lang,
-    temperature,
-    source_header,
-    target_header,
-    speaker_header,
-    typemessage_header,
-    main_prompt_template,
-    line_format_template,
-    name_term_translations,
-    character_speaking_styles,
-    default_max_chars_per_line,
-    dialogue_types,
-    default_max_dialogue_breaks,
-    adv_pevent_prefix,
-    adv_pevent_max_chars,
-    adv_pevent_max_choice_breaks,
-    other_max_chars,
-    other_max_choice_breaks,
-    adv_unit_prefix,
-    adv_pevent_choice_line1_chars,
-    adv_pevent_choice_line2_chars,
-    adv_pevent_choice_line3_chars,
+    source_folder_path=TranslatorConfig.SOURCE_FOLDER_PATH,
+    output_folder_path=TranslatorConfig.OUTPUT_FOLDER_PATH,
 ):
-    """Finds and processes Excel files (.xlsx) in a given local folder and saves to an output folder."""
+    """Finds and processes Excel files (.xlsx) in a given local folder."""
     processed_count = 0
-
     if not os.path.isdir(source_folder_path):
         print(f"Error: Source folder not found at {source_folder_path}")
         return processed_count
-
     if not os.path.exists(output_folder_path):
         os.makedirs(output_folder_path)
-
     items = [f for f in os.listdir(source_folder_path) if f.endswith(".xlsx")]
-
     if not items:
         print("No Excel files found.")
         return processed_count
@@ -98,67 +73,37 @@ def process_excel_files_in_folder(
             if df_raw.empty:
                 continue
 
-            header_row_index_pandas = -1
-            max_rows_to_search_pandas = min(len(df_raw), 10)
+            header_row_index = None
             header_row_values = None
 
-            for i in range(max_rows_to_search_pandas):
-                current_row_values = df_raw.iloc[i].tolist()
-                current_row_str_values = [
-                    str(cell).strip().lower() for cell in current_row_values
-                ]
-
-                if source_header.lower() in current_row_str_values:
-                    header_row_index_pandas = i
-                    header_row_values = current_row_values
+            for row_index in range(min(len(df_raw), HEADER_SEARCH_ROWS)):
+                row_values = df_raw.iloc[row_index].tolist()
+                if ExcelConfig.SOURCE_HEADER.lower() in [
+                    normalize_cell(cell) for cell in row_values
+                ]:
+                    header_row_index = row_index
+                    header_row_values = row_values
                     break
 
-            if header_row_index_pandas == -1:
-                print(f"Skipping: Header '{source_header}' not found.")
+            if header_row_index is None:
+                print(f"Skipping: Header '{ExcelConfig.SOURCE_HEADER}' not found.")
                 continue
 
-            df = df_raw[header_row_index_pandas + 1 :].reset_index(drop=True)
+            df = df_raw[header_row_index + 1 :].reset_index(drop=True)
             df.columns = header_row_values
 
-            source_col_name = next(
-                (
-                    col
-                    for col in df.columns
-                    if str(col).strip().lower() == source_header.lower()
-                ),
-                None,
-            )
-            target_col_name = next(
-                (
-                    col
-                    for col in df.columns
-                    if str(col).strip().lower() == target_header.lower()
-                ),
-                None,
-            )
-            speaker_col_name = next(
-                (
-                    col
-                    for col in df.columns
-                    if str(col).strip().lower() == speaker_header.lower()
-                ),
-                None,
-            )
-            typemessage_col_name = next(
-                (
-                    col
-                    for col in df.columns
-                    if str(col).strip().lower() == typemessage_header.lower()
-                ),
-                None,
+            source_col_name = find_column(df.columns, ExcelConfig.SOURCE_HEADER)
+            target_col_name = find_column(df.columns, ExcelConfig.TARGET_HEADER)
+            speaker_col_name = find_column(df.columns, ExcelConfig.SPEAKER_HEADER)
+            typemessage_col_name = find_column(
+                df.columns, ExcelConfig.TYPEMESSAGE_HEADER
             )
 
             if target_col_name is None:
-                print(f"Error: Target header '{target_header}' missing.")
+                print(f"Error: Target header '{ExcelConfig.TARGET_HEADER}' missing.")
                 continue
 
             lines_to_translate_formatted = []
-            source_texts = []
             original_row_indices_df = []
             row_types = []
 
@@ -185,30 +130,26 @@ def process_excel_files_in_folder(
                     existing_translation.strip() == ""
                     or existing_translation.strip().startswith("TRANSLATION_ERROR")
                 ):
-                    if source_text in name_term_translations:
+                    if source_text in NAME_TERM_TRANSLATIONS:
                         lines_to_translate_formatted.append(
-                            f"Line {index + 1}: {name_term_translations[source_text]}"
+                            f"Line {index + 1}: {NAME_TERM_TRANSLATIONS[source_text]}"
                         )
-                        source_texts.append(source_text)
-                        original_row_indices_df.append(index)
                     else:
-                        formatted_line = line_format_template.format(
-                            line_number=index + 1,
-                            speaker=speaker_info if speaker_info else "Unknown",
-                            text=source_text,
+                        lines_to_translate_formatted.append(
+                            LINE_FORMAT_TEMPLATE.format(
+                                line_number=index + 1,
+                                speaker=speaker_info if speaker_info else "Unknown",
+                                text=source_text,
+                            )
                         )
-                        lines_to_translate_formatted.append(formatted_line)
-                        source_texts.append(source_text)
-                        original_row_indices_df.append(index)
+                    original_row_indices_df.append(index)
 
             translated_column_data = df[target_col_name].tolist()
 
             if lines_to_translate_formatted:
                 character_styles_list_str = "\n".join(
-                    [
-                        f"- {name}: {style}"
-                        for name, style in character_speaking_styles.items()
-                    ]
+                    f"- {name}: {style}"
+                    for name, style in CHARACTER_SPEAKING_STYLES.items()
                 )
                 dict_translations = {}
                 api_lines_formatted = []
@@ -216,9 +157,7 @@ def process_excel_files_in_folder(
                 for formatted_line in lines_to_translate_formatted:
                     match = re.match(r"Line\s*(\d+)\s*:\s*(.*)", formatted_line)
                     if match:
-                        line_num = int(match.group(1))
-                        translation = match.group(2).strip()
-                        dict_translations[line_num] = translation
+                        dict_translations[int(match.group(1))] = match.group(2).strip()
                     else:
                         api_lines_formatted.append(formatted_line)
 
@@ -226,18 +165,16 @@ def process_excel_files_in_folder(
                 parsed_api_translations = {}
 
                 if api_lines_formatted:
-                    batch_prompt = main_prompt_template.format(
-                        source_lang=source_lang,
-                        target_lang=target_lang,
+                    batch_prompt = TRANSLATION_PROMPT_TEMPLATE.format(
+                        source_lang=TranslatorConfig.SOURCE_LANGUAGE,
+                        target_lang=TranslatorConfig.TARGET_LANGUAGE,
                         character_styles_list=character_styles_list_str
                         or "None provided.",
                         lines_to_translate="\n".join(api_lines_formatted),
                     )
 
                     print(f"Sending {len(api_lines_formatted)} lines to Gemini...")
-                    translated_batch_text = translate_batch_with_gemini(
-                        batch_prompt, gemini_model, temperature
-                    )
+                    translated_batch_text = translate_batch_with_gemini(batch_prompt)
 
                     if not translated_batch_text.startswith("BATCH_TRANSLATION_ERROR"):
                         translated_lines = re.findall(
@@ -251,7 +188,7 @@ def process_excel_files_in_folder(
 
                 for original_idx_df in original_row_indices_df:
                     prompt_line_number = original_idx_df + 1
-                    translated_text = ""
+
                     if prompt_line_number in dict_translations:
                         translated_text = dict_translations[prompt_line_number]
                     elif translated_batch_text.startswith("BATCH_TRANSLATION_ERROR"):
@@ -263,25 +200,11 @@ def process_excel_files_in_folder(
                             f"PARSING_ERROR: Line {prompt_line_number} missing."
                         )
 
-                    row_type = row_types[original_idx_df]
-                    translated_text = wrap_text(
+                    translated_column_data[original_idx_df] = wrap_translation(
                         translated_text,
                         file_name,
-                        row_type,
-                        default_max_chars_per_line,
-                        dialogue_types,
-                        default_max_dialogue_breaks,
-                        adv_pevent_prefix,
-                        adv_pevent_max_chars,
-                        adv_pevent_max_choice_breaks,
-                        other_max_chars,
-                        other_max_choice_breaks,
-                        adv_unit_prefix,
-                        adv_pevent_choice_line1_chars,
-                        adv_pevent_choice_line2_chars,
-                        adv_pevent_choice_line3_chars,
+                        row_types[original_idx_df],
                     )
-                    translated_column_data[original_idx_df] = translated_text
 
             df[target_col_name] = translated_column_data
 
@@ -291,36 +214,37 @@ def process_excel_files_in_folder(
             try:
                 workbook = openpyxl.load_workbook(output_file_path)
                 sheet = workbook.active
-                header_row_index_openpyxl = -1
-                target_col_index_openpyxl = -1
+                header_row_index_openpyxl = None
+                target_col_index_openpyxl = None
 
-                for r_idx in range(1, min(sheet.max_row, 10) + 1):
+                for row_index in range(1, min(sheet.max_row, HEADER_SEARCH_ROWS) + 1):
                     row_values = [
-                        str(cell.value).strip().lower() if cell.value else ""
-                        for cell in sheet[r_idx]
+                        normalize_cell(cell.value) for cell in sheet[row_index]
                     ]
-                    if target_header.lower() in row_values:
-                        header_row_index_openpyxl = r_idx - 1
+                    if ExcelConfig.TARGET_HEADER.lower() in row_values:
+                        header_row_index_openpyxl = row_index - 1
                         target_col_index_openpyxl = row_values.index(
-                            target_header.lower()
+                            ExcelConfig.TARGET_HEADER.lower()
                         )
                         break
 
-                if header_row_index_openpyxl != -1:
-                    for df_index in range(len(df)):
+                if header_row_index_openpyxl is not None:
+                    for df_index, translated_text in enumerate(translated_column_data):
                         excel_row_number = header_row_index_openpyxl + df_index + 2
                         cell = sheet.cell(
-                            row=excel_row_number, column=target_col_index_openpyxl + 1
+                            row=excel_row_number,
+                            column=target_col_index_openpyxl + 1,
                         )
-                        cell.value = translated_column_data[df_index]
+                        cell.value = translated_text
+
                     workbook.save(output_file_path)
                     print(f"Saved: {file_name}")
                     processed_count += 1
             except Exception as e:
                 print(f"Error saving {file_name}: {e}")
 
-        except Exception as e:
-            print(f"Unexpected error in {file_name}: {e}")
+        except ValueError as e:
+            print(f"Error: {e}")
 
     return processed_count
 
@@ -328,33 +252,6 @@ def process_excel_files_in_folder(
 # --- Run the script ---
 if __name__ == "__main__":
     print("Starting Gemini Excel Batch Translator script...")
-    total_processed = process_excel_files_in_folder(
-        SOURCE_FOLDER_PATH,
-        OUTPUT_FOLDER_PATH,
-        GEMINI_MODEL,
-        GEMINI_API_KEY,
-        SOURCE_LANGUAGE,
-        TARGET_LANGUAGE,
-        TEMPERATURE,
-        SOURCE_HEADER,
-        TARGET_HEADER,
-        SPEAKER_HEADER,
-        TYPEMESSAGE_HEADER,
-        TRANSLATION_PROMPT_TEMPLATE,
-        LINE_FORMAT_TEMPLATE,
-        NAME_TERM_TRANSLATIONS,
-        CHARACTER_SPEAKING_STYLES,
-        DEFAULT_MAX_CHARS_PER_LINE,
-        DIALOGUE_TYPES,
-        DEFAULT_MAX_DIALOGUE_LINE_BREAKS,
-        ADV_PEVENT_PREFIX,
-        ADV_PEVENT_MAX_CHARS,
-        ADV_PEVENT_MAX_CHOICE_BREAKS,
-        OTHER_MAX_CHARS,
-        OTHER_MAX_CHOICE_BREAKS,
-        ADV_UNIT_PREFIX,
-        ADV_PEVENT_CHOICE_LINE1_CHARS,
-        ADV_PEVENT_CHOICE_LINE2_CHARS,
-        ADV_PEVENT_CHOICE_LINE3_CHARS,
-    )
-    print(f"\nScript finished. Processed {total_processed} files.")
+    total_processed = process_excel_files_in_folder()
+    if total_processed > 0:
+        print(f"\nScript finished. Processed {total_processed} files.")
