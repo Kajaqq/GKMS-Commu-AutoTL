@@ -5,7 +5,6 @@ from google.genai import types as genai_types
 
 from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
 
-
 class ModelConfig(ABC):
     GEMINI_MODEL = "gemini-3-flash-preview"
     # Model Temperature - for Gemini 3 series, keep it as 1.0, for older models try 0.1-0.3
@@ -49,7 +48,6 @@ class ModelConfig(ABC):
         vertex_project = os.getenv("GOOGLE_CLOUD_PROJECT", None)
         return True if vertex_project else False
 
-
 class TranslatorConfig:
     # Language settings
     TARGET_LANGUAGE = "English"
@@ -58,7 +56,6 @@ class TranslatorConfig:
     # xlsx files paths
     SOURCE_FOLDER_PATH = "IN"
     OUTPUT_FOLDER_PATH = "OUT"
-
 
 class ExcelConfig:
     # Headers for the source and target columns
@@ -70,3 +67,29 @@ class ExcelConfig:
 
     # Header for the message type column
     TYPEMESSAGE_HEADER = "type"
+
+class FormattingConfig:
+    # Default character width for general text wrapping
+    DEFAULT_MAX_CHARS_PER_LINE = 40
+
+    # Message types treated as dialogue (subject to dialogue line-break limit)
+    DIALOGUE_TYPES = ["message", "messagelog"]
+    DEFAULT_MAX_DIALOGUE_LINE_BREAKS = 4
+
+    # File-name prefixes that trigger special rules
+    ADV_PEVENT_PREFIX = "adv_pevent_002_"
+    ADV_UNIT_PREFIX = "adv_unit_"  # adv_unit_ skips width-based wrapping
+
+    # Single-line/bubble choice rules for adv_pevent_ files.
+    # Fallback width when per-line limits are not set.
+    ADV_PEVENT_MAX_CHARS = 29
+    ADV_PEVENT_MAX_CHOICE_BREAKS = 3
+
+    # Per-line limits for adv_pevent_ choices; set to None to use ADV_PEVENT_MAX_CHARS instead.
+    ADV_PEVENT_CHOICE_LINE1_CHARS = None
+    ADV_PEVENT_CHOICE_LINE2_CHARS = None
+    ADV_PEVENT_CHOICE_LINE3_CHARS = None
+
+    # Bubble-choice rules for non-adv_pevent_ files (approx. 34 full-width / 43 half-width)
+    OTHER_MAX_CHARS = 43
+    OTHER_MAX_CHOICE_BREAKS = 3
