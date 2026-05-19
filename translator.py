@@ -34,8 +34,7 @@ def translate_batch_with_gemini(batch_prompt, model_name=AI_MODEL):
         if response and response.text:
             return response.text.strip()
         else:
-            print("WARNING: No Response from the Gemini API for file")
-            return ""
+            raise ValueError("Empty response from the Gemini API for file")
     except Exception as e:
         print(f"Error translating batch: {e}")
         return f"BATCH_TRANSLATION_ERROR: {e}"

@@ -1,48 +1,184 @@
-import os
 import re
-import shutil
+from pathlib import Path
 
 import openpyxl
-import pandas as pd
+from openpyxl.cell.cell import Cell
 
 # --- Import Configuration ---
 from config import TranslatorConfig, ExcelConfig
 from dictionary import NAME_TERM_TRANSLATIONS
 from character_styles import CHARACTER_SPEAKING_STYLES
 from prompts import LINE_FORMAT_TEMPLATE, TRANSLATION_PROMPT_TEMPLATE
-from formatting import *
+from text_utils import normalize_cell, safe_str
+from formatting import wrap_text
 from translator import translate_batch_with_gemini
 
 HEADER_SEARCH_ROWS = 10
 
 
-def normalize_cell(value):
-    return str(value).strip().lower()
+# --- Header Locating ---
+def locate_header_row(sheet) -> tuple[int, dict[str, int]] | None:
+    """Scans the first HEADER_SEARCH_ROWS of the sheet to find the row
+    containing the source header.
 
+    Returns a tuple of (header_row_number, {normalized_header: column_index})
+    using 1-based indices, or None if not found.
+    """
+    max_search = min(sheet.max_row, HEADER_SEARCH_ROWS)
+    source_header = ExcelConfig.SOURCE_HEADER.lower()
 
-def find_column(columns, header):
-    return next((col for col in columns if normalize_cell(col) == header.lower()), None)
+    for row_index in range(1, max_search + 1):
+        row_cells = sheet[row_index]
+        normalized = [normalize_cell(cell.value) for cell in row_cells]
+        if source_header in normalized:
+            header_map = {
+                name: idx + 1  # 1-based column index for sheet.cell()
+                for idx, name in enumerate(normalized)
+                if name
+            }
+            return row_index, header_map
+    return None
 
+# --- API Calling ---
+def request_translations_from_api(api_lines_formatted):
+    """Builds the prompt, calls the Gemini API and parses the response.
 
-def wrap_translation(text, file_name, message_type):
-    return wrap_text(
-        text,
-        file_name,
-        message_type,
-        DEFAULT_MAX_CHARS_PER_LINE,
-        DIALOGUE_TYPES,
-        DEFAULT_MAX_DIALOGUE_LINE_BREAKS,
-        ADV_PEVENT_PREFIX,
-        ADV_PEVENT_MAX_CHARS,
-        ADV_PEVENT_MAX_CHOICE_BREAKS,
-        OTHER_MAX_CHARS,
-        OTHER_MAX_CHOICE_BREAKS,
-        ADV_UNIT_PREFIX,
-        ADV_PEVENT_CHOICE_LINE1_CHARS,
-        ADV_PEVENT_CHOICE_LINE2_CHARS,
-        ADV_PEVENT_CHOICE_LINE3_CHARS,
+    Returns a tuple of (raw_response_text, parsed_translations_dict).
+    """
+    character_styles_list_str = "\n".join(
+        f"- {name}: {style}"
+        for name, style in CHARACTER_SPEAKING_STYLES.items()
     )
 
+    batch_prompt = TRANSLATION_PROMPT_TEMPLATE.format(
+        source_lang=TranslatorConfig.SOURCE_LANGUAGE,
+        target_lang=TranslatorConfig.TARGET_LANGUAGE,
+        character_styles_list=character_styles_list_str or "None provided.",
+        lines_to_translate="\n".join(api_lines_formatted),
+    )
+
+    print(f"Sending {len(api_lines_formatted)} lines to Gemini...")
+    translated_batch_text = translate_batch_with_gemini(batch_prompt)
+
+    parsed_api_translations = {}
+    if not translated_batch_text.startswith("BATCH_TRANSLATION_ERROR"):
+        translated_lines = re.findall(
+            r"Line\s*(\d+)\s*[:.]?\s*(.*?)(?=\nLine\s*\d+\s*[:.]?|\Z)",
+            translated_batch_text,
+            re.DOTALL,
+        )
+        parsed_api_translations = {
+            int(num): text.strip() for num, text in translated_lines
+        }
+
+    return translated_batch_text, parsed_api_translations
+
+# --- XLSX Processing ---
+def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
+    """Processes a single Excel workbook: reads, translates, and saves.
+
+    Returns True if the file was processed and saved successfully.
+    """
+    file_name = source_file_path.name
+    workbook = openpyxl.load_workbook(source_file_path)
+    sheet = workbook.active
+    if sheet is None:
+        print(f"Skipping: workbook has no active sheet.")
+        return False
+
+    header_info = locate_header_row(sheet)
+    if header_info is None:
+        print(
+            f"Skipping: Header '{ExcelConfig.SOURCE_HEADER}' not found "
+            f"or file is empty."
+        )
+        return False
+
+    header_row, header_map = header_info
+
+    source_col = header_map.get(ExcelConfig.SOURCE_HEADER.lower())
+    target_col = header_map.get(ExcelConfig.TARGET_HEADER.lower())
+    speaker_col = header_map.get(ExcelConfig.SPEAKER_HEADER.lower())
+    typemessage_col = header_map.get(ExcelConfig.TYPEMESSAGE_HEADER.lower())
+
+    if source_col is None:
+        print(f"Error: Source header '{ExcelConfig.SOURCE_HEADER}' missing.")
+        return False
+    if target_col is None:
+        print(f"Error: Target header '{ExcelConfig.TARGET_HEADER}' missing.")
+        return False
+
+    # Collect rows that need translation
+    dict_translations: dict[int, str] = {}
+    api_lines_formatted: list[str] = []
+    pending_rows: list[tuple[int, int, str]] = []  # (line_number, excel_row, message_type)
+
+    first_data_row = header_row + 1
+    for line_number, excel_row in enumerate(
+        range(first_data_row, sheet.max_row + 1), start=1
+    ):
+        source_text = safe_str(sheet.cell(row=excel_row, column=source_col).value)
+        existing_translation = safe_str(
+            sheet.cell(row=excel_row, column=target_col).value
+        )
+        speaker_info = (
+            safe_str(sheet.cell(row=excel_row, column=speaker_col).value)
+            if speaker_col
+            else ""
+        )
+        message_type = (
+            safe_str(sheet.cell(row=excel_row, column=typemessage_col).value).lower()
+            if typemessage_col
+            else ""
+        )
+
+        needs_translation = source_text != "" and (
+            existing_translation == ""
+            or existing_translation.startswith("TRANSLATION_ERROR")
+        )
+        if not needs_translation:
+            continue
+
+        if source_text in NAME_TERM_TRANSLATIONS:
+            dict_translations[line_number] = NAME_TERM_TRANSLATIONS[source_text]
+        else:
+            api_lines_formatted.append(
+                LINE_FORMAT_TEMPLATE.format(
+                    line_number=line_number,
+                    speaker=speaker_info or "Unknown",
+                    text=source_text,
+                )
+            )
+        pending_rows.append((line_number, excel_row, message_type))
+
+    # Call the API if there are non-dictionary lines, then write results back
+    if pending_rows:
+        translated_batch_text = ""
+        parsed_api_translations: dict[int, str] = {}
+
+        if api_lines_formatted:
+            translated_batch_text, parsed_api_translations = (
+                request_translations_from_api(api_lines_formatted)
+            )
+
+        for line_number, excel_row, message_type in pending_rows:
+            if line_number in dict_translations:
+                translated_text = dict_translations[line_number]
+            elif translated_batch_text.startswith("BATCH_TRANSLATION_ERROR"):
+                translated_text = translated_batch_text
+            elif line_number in parsed_api_translations:
+                translated_text = parsed_api_translations[line_number]
+            else:
+                translated_text = f"PARSING_ERROR: Line {line_number} missing."
+
+            wrapped = wrap_text(translated_text, file_name, message_type)
+            cell = sheet.cell(row=excel_row, column=target_col)
+            if isinstance(cell, Cell):
+                cell.value = wrapped
+
+    workbook.save(output_file_path)
+    print(f"Saved: {file_name}")
+    return True
 
 # --- Main Processing Logic ---
 def process_excel_files_in_folder(
@@ -51,200 +187,30 @@ def process_excel_files_in_folder(
 ):
     """Finds and processes Excel files (.xlsx) in a given local folder."""
     processed_count = 0
-    if not os.path.isdir(source_folder_path):
-        print(f"Error: Source folder not found at {source_folder_path}")
+    source_folder = Path(source_folder_path)
+    output_folder = Path(output_folder_path)
+
+    if not source_folder.is_dir():
+        print(f"Error: Source folder not found at {source_folder}")
         return processed_count
-    if not os.path.exists(output_folder_path):
-        os.makedirs(output_folder_path)
-    items = [f for f in os.listdir(source_folder_path) if f.endswith(".xlsx")]
+
+    output_folder.mkdir(parents=True, exist_ok=True)
+
+    items = sorted(source_folder.glob("*.xlsx"))
     if not items:
         print("No Excel files found.")
         return processed_count
 
-    for item in items:
-        source_file_path = os.path.join(source_folder_path, item)
-        output_file_path = os.path.join(output_folder_path, item)
-        file_name = item
+    for source_file_path in items:
+        output_file_path = output_folder / source_file_path.name
+        file_name = source_file_path.name
         print(f"\n--- Processing file: {file_name} ---")
 
         try:
-            df_raw = pd.read_excel(source_file_path, sheet_name=0, header=None)
-
-            if df_raw.empty:
-                continue
-
-            header_row_index = None
-            header_row_values = None
-
-            for row_index in range(min(len(df_raw), HEADER_SEARCH_ROWS)):
-                row_values = df_raw.iloc[row_index].tolist()
-                if ExcelConfig.SOURCE_HEADER.lower() in [
-                    normalize_cell(cell) for cell in row_values
-                ]:
-                    header_row_index = row_index
-                    header_row_values = row_values
-                    break
-
-            if header_row_index is None:
-                print(f"Skipping: Header '{ExcelConfig.SOURCE_HEADER}' not found.")
-                continue
-
-            df = df_raw[header_row_index + 1 :].reset_index(drop=True)
-            df.columns = header_row_values
-
-            source_col_name = find_column(df.columns, ExcelConfig.SOURCE_HEADER)
-            target_col_name = find_column(df.columns, ExcelConfig.TARGET_HEADER)
-            speaker_col_name = find_column(df.columns, ExcelConfig.SPEAKER_HEADER)
-            typemessage_col_name = find_column(
-                df.columns, ExcelConfig.TYPEMESSAGE_HEADER
-            )
-
-            if target_col_name is None:
-                print(f"Error: Target header '{ExcelConfig.TARGET_HEADER}' missing.")
-                continue
-
-            lines_to_translate_formatted = []
-            original_row_indices_df = []
-            row_types = []
-
-            for index, row in df.iterrows():
-                source_text = (
-                    str(row[source_col_name]) if pd.notna(row[source_col_name]) else ""
-                )
-                existing_translation = (
-                    str(row[target_col_name]) if pd.notna(row[target_col_name]) else ""
-                )
-                speaker_info = (
-                    str(row[speaker_col_name])
-                    if speaker_col_name and pd.notna(row[speaker_col_name])
-                    else ""
-                )
-                message_type = (
-                    str(row[typemessage_col_name]).strip().lower()
-                    if typemessage_col_name and pd.notna(row[typemessage_col_name])
-                    else ""
-                )
-                row_types.append(message_type)
-
-                if source_text.strip() != "" and (
-                    existing_translation.strip() == ""
-                    or existing_translation.strip().startswith("TRANSLATION_ERROR")
-                ):
-                    if source_text in NAME_TERM_TRANSLATIONS:
-                        lines_to_translate_formatted.append(
-                            f"Line {index + 1}: {NAME_TERM_TRANSLATIONS[source_text]}"
-                        )
-                    else:
-                        lines_to_translate_formatted.append(
-                            LINE_FORMAT_TEMPLATE.format(
-                                line_number=index + 1,
-                                speaker=speaker_info if speaker_info else "Unknown",
-                                text=source_text,
-                            )
-                        )
-                    original_row_indices_df.append(index)
-
-            translated_column_data = df[target_col_name].tolist()
-
-            if lines_to_translate_formatted:
-                character_styles_list_str = "\n".join(
-                    f"- {name}: {style}"
-                    for name, style in CHARACTER_SPEAKING_STYLES.items()
-                )
-                dict_translations = {}
-                api_lines_formatted = []
-
-                for formatted_line in lines_to_translate_formatted:
-                    match = re.match(r"Line\s*(\d+)\s*:\s*(.*)", formatted_line)
-                    if match:
-                        dict_translations[int(match.group(1))] = match.group(2).strip()
-                    else:
-                        api_lines_formatted.append(formatted_line)
-
-                translated_batch_text = ""
-                parsed_api_translations = {}
-
-                if api_lines_formatted:
-                    batch_prompt = TRANSLATION_PROMPT_TEMPLATE.format(
-                        source_lang=TranslatorConfig.SOURCE_LANGUAGE,
-                        target_lang=TranslatorConfig.TARGET_LANGUAGE,
-                        character_styles_list=character_styles_list_str
-                        or "None provided.",
-                        lines_to_translate="\n".join(api_lines_formatted),
-                    )
-
-                    print(f"Sending {len(api_lines_formatted)} lines to Gemini...")
-                    translated_batch_text = translate_batch_with_gemini(batch_prompt)
-
-                    if not translated_batch_text.startswith("BATCH_TRANSLATION_ERROR"):
-                        translated_lines = re.findall(
-                            r"Line\s*(\d+)\s*[:.]?\s*(.*?)(?=\nLine\s*\d+\s*[:.]?|\Z)",
-                            translated_batch_text,
-                            re.DOTALL,
-                        )
-                        parsed_api_translations = {
-                            int(num): text.strip() for num, text in translated_lines
-                        }
-
-                for original_idx_df in original_row_indices_df:
-                    prompt_line_number = original_idx_df + 1
-
-                    if prompt_line_number in dict_translations:
-                        translated_text = dict_translations[prompt_line_number]
-                    elif translated_batch_text.startswith("BATCH_TRANSLATION_ERROR"):
-                        translated_text = translated_batch_text
-                    elif prompt_line_number in parsed_api_translations:
-                        translated_text = parsed_api_translations[prompt_line_number]
-                    else:
-                        translated_text = (
-                            f"PARSING_ERROR: Line {prompt_line_number} missing."
-                        )
-
-                    translated_column_data[original_idx_df] = wrap_translation(
-                        translated_text,
-                        file_name,
-                        row_types[original_idx_df],
-                    )
-
-            df[target_col_name] = translated_column_data
-
-            if source_file_path != output_file_path:
-                shutil.copy2(source_file_path, output_file_path)
-
-            try:
-                workbook = openpyxl.load_workbook(output_file_path)
-                sheet = workbook.active
-                header_row_index_openpyxl = None
-                target_col_index_openpyxl = None
-
-                for row_index in range(1, min(sheet.max_row, HEADER_SEARCH_ROWS) + 1):
-                    row_values = [
-                        normalize_cell(cell.value) for cell in sheet[row_index]
-                    ]
-                    if ExcelConfig.TARGET_HEADER.lower() in row_values:
-                        header_row_index_openpyxl = row_index - 1
-                        target_col_index_openpyxl = row_values.index(
-                            ExcelConfig.TARGET_HEADER.lower()
-                        )
-                        break
-
-                if header_row_index_openpyxl is not None:
-                    for df_index, translated_text in enumerate(translated_column_data):
-                        excel_row_number = header_row_index_openpyxl + df_index + 2
-                        cell = sheet.cell(
-                            row=excel_row_number,
-                            column=target_col_index_openpyxl + 1,
-                        )
-                        cell.value = translated_text
-
-                    workbook.save(output_file_path)
-                    print(f"Saved: {file_name}")
-                    processed_count += 1
-            except Exception as e:
-                print(f"Error saving {file_name}: {e}")
-
-        except ValueError as e:
-            print(f"Error: {e}")
+            if process_workbook(source_file_path, output_file_path):
+                processed_count += 1
+        except Exception as e:
+            print(f"Error processing {file_name}: {e}")
 
     return processed_count
 
