@@ -18,15 +18,8 @@ HEADER_SEARCH_ROWS = 10
 
 # --- Header Locating ---
 def locate_header_row(sheet) -> tuple[int, dict[str, int]] | None:
-    """Scans the first HEADER_SEARCH_ROWS of the sheet to find the row
-    containing the source header.
-
-    Returns a tuple of (header_row_number, {normalized_header: column_index})
-    using 1-based indices, or None if not found.
-    """
     max_search = min(sheet.max_row, HEADER_SEARCH_ROWS)
     source_header = ExcelConfig.SOURCE_HEADER.lower()
-
     for row_index in range(1, max_search + 1):
         row_cells = sheet[row_index]
         normalized = [normalize_cell(cell.value) for cell in row_cells]
@@ -81,103 +74,122 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
     """
     file_name = source_file_path.name
     workbook = openpyxl.load_workbook(source_file_path)
-    sheet = workbook.active
-    if sheet is None:
-        print(f"Skipping: workbook has no active sheet.")
-        return False
+    output_file_exists = output_file_path.exists()
+    should_save = False
+    completed = False
+    try:
+        sheet = workbook.active
+        if sheet is None:
+            print("Skipping: workbook has no active sheet.")
+            return False
 
-    header_info = locate_header_row(sheet)
-    if header_info is None:
-        print(
-            f"Skipping: Header '{ExcelConfig.SOURCE_HEADER}' not found "
-            f"or file is empty."
-        )
-        return False
-
-    header_row, header_map = header_info
-
-    source_col = header_map.get(ExcelConfig.SOURCE_HEADER.lower())
-    target_col = header_map.get(ExcelConfig.TARGET_HEADER.lower())
-    speaker_col = header_map.get(ExcelConfig.SPEAKER_HEADER.lower())
-    typemessage_col = header_map.get(ExcelConfig.TYPEMESSAGE_HEADER.lower())
-
-    if source_col is None:
-        print(f"Error: Source header '{ExcelConfig.SOURCE_HEADER}' missing.")
-        return False
-    if target_col is None:
-        print(f"Error: Target header '{ExcelConfig.TARGET_HEADER}' missing.")
-        return False
-
-    # Collect rows that need translation
-    dict_translations: dict[int, str] = {}
-    api_lines_formatted: list[str] = []
-    pending_rows: list[tuple[int, int, str]] = []  # (line_number, excel_row, message_type)
-
-    first_data_row = header_row + 1
-    for line_number, excel_row in enumerate(
-        range(first_data_row, sheet.max_row + 1), start=1
-    ):
-        source_text = safe_str(sheet.cell(row=excel_row, column=source_col).value)
-        existing_translation = safe_str(
-            sheet.cell(row=excel_row, column=target_col).value
-        )
-        speaker_info = (
-            safe_str(sheet.cell(row=excel_row, column=speaker_col).value)
-            if speaker_col
-            else ""
-        )
-        message_type = (
-            safe_str(sheet.cell(row=excel_row, column=typemessage_col).value).lower()
-            if typemessage_col
-            else ""
-        )
-
-        needs_translation = source_text != "" and (
-            existing_translation == ""
-            or existing_translation.startswith("TRANSLATION_ERROR")
-        )
-        if not needs_translation:
-            continue
-
-        if source_text in NAME_TERM_TRANSLATIONS:
-            dict_translations[line_number] = NAME_TERM_TRANSLATIONS[source_text]
-        else:
-            api_lines_formatted.append(
-                LINE_FORMAT_TEMPLATE.format(
-                    line_number=line_number,
-                    speaker=speaker_info or "Unknown",
-                    text=source_text,
-                )
+        header_info = locate_header_row(sheet)
+        if header_info is None:
+            print(
+                f"Skipping: Header '{ExcelConfig.SOURCE_HEADER}' not found "
+                f"or file is empty."
             )
-        pending_rows.append((line_number, excel_row, message_type))
+            return False
 
-    # Call the API if there are non-dictionary lines, then write results back
-    if pending_rows:
-        translated_batch_text = ""
-        parsed_api_translations: dict[int, str] = {}
+        header_row, header_map = header_info
 
-        if api_lines_formatted:
-            translated_batch_text, parsed_api_translations = (
-                request_translations_from_api(api_lines_formatted)
+        source_col = header_map.get(ExcelConfig.SOURCE_HEADER.lower())
+        target_col = header_map.get(ExcelConfig.TARGET_HEADER.lower())
+        speaker_col = header_map.get(ExcelConfig.SPEAKER_HEADER.lower())
+        typemessage_col = header_map.get(ExcelConfig.TYPEMESSAGE_HEADER.lower())
+
+        if source_col is None:
+            print(f"Error: Source header '{ExcelConfig.SOURCE_HEADER}' missing.")
+            return False
+        if target_col is None:
+            print(f"Error: Target header '{ExcelConfig.TARGET_HEADER}' missing.")
+            return False
+        should_save = True
+
+        # Collect rows that need translation
+        dict_translations: dict[int, str] = {}
+        api_lines_formatted: list[str] = []
+        pending_rows: list[tuple[int, Cell, str]] = []  # (line_number, target_cell, message_type)
+
+        wanted_cols = [source_col, target_col]
+        if speaker_col:
+            wanted_cols.append(speaker_col)
+        if typemessage_col:
+            wanted_cols.append(typemessage_col)
+        min_col = min(wanted_cols)
+        max_col = max(wanted_cols)
+
+        def cell_at(row, column):
+            return row[column - min_col]
+
+        first_data_row = header_row + 1
+        for line_number, row in enumerate(
+            sheet.iter_rows(min_row=first_data_row, min_col=min_col, max_col=max_col),
+            start=1,
+        ):
+            source_text = safe_str(cell_at(row, source_col).value)
+            target_cell = cell_at(row, target_col)
+            existing_translation = safe_str(target_cell.value)
+            speaker_info = (
+                safe_str(cell_at(row, speaker_col).value)
+                if speaker_col
+                else ""
+            )
+            message_type = (
+                safe_str(cell_at(row, typemessage_col).value).lower()
+                if typemessage_col
+                else ""
             )
 
-        for line_number, excel_row, message_type in pending_rows:
-            if line_number in dict_translations:
-                translated_text = dict_translations[line_number]
-            elif translated_batch_text.startswith("BATCH_TRANSLATION_ERROR"):
-                translated_text = translated_batch_text
-            elif line_number in parsed_api_translations:
-                translated_text = parsed_api_translations[line_number]
+            needs_translation = source_text != "" and (
+                existing_translation == ""
+                or existing_translation.startswith("TRANSLATION_ERROR")
+            )
+            if not needs_translation:
+                continue
+
+            if source_text in NAME_TERM_TRANSLATIONS:
+                dict_translations[line_number] = NAME_TERM_TRANSLATIONS[source_text]
             else:
-                translated_text = f"PARSING_ERROR: Line {line_number} missing."
+                api_lines_formatted.append(
+                    LINE_FORMAT_TEMPLATE.format(
+                        line_number=line_number,
+                        speaker=speaker_info or "Unknown",
+                        text=source_text,
+                    )
+                )
+            pending_rows.append((line_number, target_cell, message_type))
 
-            wrapped = wrap_text(translated_text, file_name, message_type)
-            cell = sheet.cell(row=excel_row, column=target_col)
-            if isinstance(cell, Cell):
-                cell.value = wrapped
+        if not pending_rows and output_file_path.exists():
+            print(f"No translations needed; refreshing output: {file_name}")
 
-    workbook.save(output_file_path)
-    print(f"Saved: {file_name}")
+        # Call the API if there are non-dictionary lines, then write results back
+        if pending_rows:
+            translated_batch_text = ""
+            parsed_api_translations: dict[int, str] = {}
+
+            if api_lines_formatted:
+                translated_batch_text, parsed_api_translations = (
+                    request_translations_from_api(api_lines_formatted)
+                )
+
+            for line_number, target_cell, message_type in pending_rows:
+                if line_number in dict_translations:
+                    translated_text = dict_translations[line_number]
+                elif translated_batch_text.startswith("BATCH_TRANSLATION_ERROR"):
+                    translated_text = translated_batch_text
+                elif line_number in parsed_api_translations:
+                    translated_text = parsed_api_translations[line_number]
+                else:
+                    translated_text = f"PARSING_ERROR: Line {line_number} missing."
+
+                wrapped = wrap_text(translated_text, file_name, message_type)
+                target_cell.value = wrapped
+        completed = True
+    finally:
+        if should_save and (completed or not output_file_exists):
+            workbook.save(output_file_path)
+            print(f"Saved: {file_name}")
     return True
 
 # --- Main Processing Logic ---
