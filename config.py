@@ -7,7 +7,8 @@ from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
 
 class ModelConfig(ABC):
     GEMINI_MODEL = "gemini-3-flash-preview"
-    # Model Temperature - for Gemini 3 series, keep it as 1.0, for older models try 0.1-0.3
+
+    # Model Temperature - for Gemini 3 series, keep it at 1.0, for older models try 0.1-0.3
     TEMPERATURE = 1.0
 
     # System Instructions to use
@@ -41,6 +42,9 @@ class ModelConfig(ABC):
         temperature=TEMPERATURE,
         system_instruction=SYSTEM_INSTRUCTIONS,
         safety_settings=safety_config,
+        thinking_config=genai_types.ThinkingConfig(
+            thinking_level=genai_types.ThinkingLevel.MINIMAL
+        ),
     )
 
     @staticmethod

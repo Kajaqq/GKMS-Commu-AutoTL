@@ -131,9 +131,7 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
             target_cell = cell_at(row, target_col)
             existing_translation = safe_str(target_cell.value)
             speaker_info = (
-                safe_str(cell_at(row, speaker_col).value)
-                if speaker_col
-                else ""
+                safe_str(cell_at(row, speaker_col).value) if speaker_col else ""
             )
             message_type = (
                 safe_str(cell_at(row, typemessage_col).value).lower()
