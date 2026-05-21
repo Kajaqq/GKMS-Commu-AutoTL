@@ -5,9 +5,9 @@ description = "Gakumas Commu Translation Tool using Gemini API"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "google-genai>=2.4.0",
+    "google-genai>=2.5.0",
     "openpyxl>=3.1.5",
     "protobuf>=7.34.1",
     "pyrefly>=0.60.0",
-    "python-dotenv>=1.2.2",
+    "python-dotenv",
 ]
