@@ -27,7 +27,18 @@ Avoid running the full translator unless API credentials are configured and netw
 
 Use Python 3.14-compatible code. Follow the existing style: 4-space indentation, descriptive snake_case functions and variables, and PascalCase config classes. Keep modules focused by responsibility instead of adding unrelated logic to `process_excel_files.py`.
 
-Prefer `pathlib.Path` for file paths and `openpyxl` APIs for workbook access. Keep comments short and useful; avoid restating obvious code.
+Prefer using modern Python features and libraries like:
+- `typing` for type annotations.
+- `dataclasses` for data classes.
+- `Pathlib` for file paths
+- `openpyxl` for Excel file reading and writing.
+
+If writing async code use:
+- `aiofiles` for async file I/O.
+- `aiohttp` for HTTP calls.
+- `winloop` for the async event loop
+
+Keep comments short and useful; avoid restating obvious code.
 
 ## Testing Guidelines
 
