@@ -38,8 +38,7 @@ def request_translations_from_api(api_lines_formatted):
     Returns a tuple of (raw_response_text, parsed_translations_dict).
     """
     character_styles_list_str = "\n".join(
-        f"- {name}: {style}"
-        for name, style in CHARACTER_SPEAKING_STYLES.items()
+        f"- {name}: {style}" for name, style in CHARACTER_SPEAKING_STYLES.items()
     )
 
     batch_prompt = TRANSLATION_PROMPT_TEMPLATE.format(
@@ -64,6 +63,7 @@ def request_translations_from_api(api_lines_formatted):
         }
 
     return translated_batch_text, parsed_api_translations
+
 
 # --- XLSX Processing ---
 def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
@@ -163,6 +163,7 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
             print(f"Saved: {file_name}")
     return True
 
+
 # --- Main Processing Logic ---
 def process_excel_files_in_folder(
     source_folder_path=TranslatorConfig.SOURCE_FOLDER_PATH,
@@ -181,26 +182,25 @@ def process_excel_files_in_folder(
 
     items = sorted(source_folder.glob("*.xlsx"))
     if not items:
-        print("No Excel files found.")
+        print("Error: No Excel files found.")
         return processed_count
 
     for source_file_path in items:
-        output_file_path = output_folder / source_file_path.name
-        file_name = source_file_path.name
-        print(f"\n--- Processing file: {file_name} ---")
-
+        source_file_name = source_file_path.name
+        output_file_path = output_folder / source_file_name
+        print(f"\n--- Processing file: {source_file_name} ---")
         try:
             if process_workbook(source_file_path, output_file_path):
                 processed_count += 1
         except Exception as e:
-            print(f"Error processing {file_name}: {e}")
+            print(f"Error processing {source_file_name}: {e}")
 
     return processed_count
 
 
 # --- Run the script ---
 if __name__ == "__main__":
-    print("Starting Gemini Excel Batch Translator script...")
+    print("Starting Gakumas Commu Excel Batch Translator script...")
     total_processed = process_excel_files_in_folder()
     if total_processed > 0:
         print(f"\nScript finished. Processed {total_processed} files.")

@@ -4,6 +4,7 @@ from typing import Any
 _DOUBLE_DASH_REPLACEMENTS = ("--", "ーー", "——", "──")
 _SINGLE_DASH_REPLACEMENTS = ("ー", "—", "─")
 
+
 def strip_wrapping_quotes(text: str) -> str:
     """Remove surrounding "..." or \"\"\"...\"\"\" that models sometimes emit."""
     if text.startswith('"""') and text.endswith('"""'):
@@ -11,6 +12,7 @@ def strip_wrapping_quotes(text: str) -> str:
     if text.startswith('"') and text.endswith('"'):
         return text[1:-1]
     return text
+
 
 def normalize_punctuation(text: str) -> str:
     """Convert JP-style dashes, periods, ellipses, and tildes to project conventions."""
@@ -23,6 +25,7 @@ def normalize_punctuation(text: str) -> str:
     text = text.replace("~", "～")
     return text
 
+
 def clean_text(text: str, message_type: str) -> str:
     """Apply all cleanup rules. Returns '' for empty/non-string input."""
     if not text or not isinstance(text, str):
@@ -34,9 +37,11 @@ def clean_text(text: str, message_type: str) -> str:
         text = text[:-1]
     return text
 
+
 def safe_str(value: Any) -> str:
     """Returns a stripped string from a cell value, or empty string if None."""
     return str(value).strip() if value is not None else ""
+
 
 def normalize_cell(value: Any) -> str:
     return safe_str(value).lower()

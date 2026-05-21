@@ -2,6 +2,7 @@ import textwrap
 from config import FormattingConfig
 from text_utils import clean_text
 
+
 def wrap_per_line_limits(text: str, line_limits: list[int]) -> list[str]:
     """Word-aware wrap using a separate char limit per line.
 
@@ -30,7 +31,7 @@ def wrap_per_line_limits(text: str, line_limits: list[int]) -> list[str]:
                 words = words[j:]
             else:
                 wrapped.append(word)
-                words = words[j + 1:]
+                words = words[j + 1 :]
             break
         else:
             # Loop completed without break — all remaining words fit on this line
@@ -41,6 +42,7 @@ def wrap_per_line_limits(text: str, line_limits: list[int]) -> list[str]:
     if words:
         wrapped.append(" ".join(words))
     return wrapped
+
 
 def resolve_wrap_params(file_name: str, message_type: str):
     """Return (max_chars, max_breaks, use_per_line) based on file and message type."""
@@ -65,8 +67,13 @@ def resolve_wrap_params(file_name: str, message_type: str):
             return cfg.ADV_PEVENT_MAX_CHARS, cfg.ADV_PEVENT_MAX_CHOICE_BREAKS, False
         return cfg.OTHER_MAX_CHARS, cfg.OTHER_MAX_CHOICE_BREAKS, False
     if message_type in cfg.DIALOGUE_TYPES:
-        return cfg.DEFAULT_MAX_CHARS_PER_LINE, cfg.DEFAULT_MAX_DIALOGUE_LINE_BREAKS, False
+        return (
+            cfg.DEFAULT_MAX_CHARS_PER_LINE,
+            cfg.DEFAULT_MAX_DIALOGUE_LINE_BREAKS,
+            False,
+        )
     return cfg.DEFAULT_MAX_CHARS_PER_LINE, None, False
+
 
 def wrap_text(text, file_name: str, message_type: str) -> str:
     """Clean and wrap translated text for an Excel cell."""

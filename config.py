@@ -5,6 +5,7 @@ from google.genai import types as genai_types
 
 from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
 
+
 class ModelConfig(ABC):
     GEMINI_MODEL = "gemini-3-flash-preview"
 
@@ -52,6 +53,7 @@ class ModelConfig(ABC):
         vertex_project = os.getenv("GOOGLE_CLOUD_PROJECT", None)
         return True if vertex_project else False
 
+
 class TranslatorConfig:
     # Language settings
     TARGET_LANGUAGE = "English"
@@ -60,6 +62,7 @@ class TranslatorConfig:
     # xlsx files paths
     SOURCE_FOLDER_PATH = "IN"
     OUTPUT_FOLDER_PATH = "OUT"
+
 
 class ExcelConfig:
     # Headers for the source and target columns
