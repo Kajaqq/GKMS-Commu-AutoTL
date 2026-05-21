@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 
 import openpyxl
-from openpyxl.cell.cell import Cell
+from openpyxl.cell.cell import Cell, MergedCell
 
 # --- Import Configuration ---
 from config import TranslatorConfig, ExcelConfig
@@ -16,7 +16,8 @@ from translator import translate_batch_with_gemini
 # --- Sheet utils ---
 expected_header = [
     ExcelConfig.TYPE,
-    ExcelConfig.SPEAKER,
+    ExcelConfig.ORIGINAL_SPEAKER,
+    ExcelConfig.TRANSLATED_SPEAKER,
     ExcelConfig.SOURCE,
     ExcelConfig.TARGET,
 ]
@@ -85,40 +86,32 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
         validate_header_row(sheet)
         should_save = True
 
-        # Collect rows that need translation
-        dict_translations: dict[int, str] = {}
-        api_lines_formatted: list[str] = []
-        pending_rows: list[tuple[int, Cell, str]] = []  # (line_number, target_cell, message_type)
+        # Setup variables
+        all_rows = sheet.iter_rows(min_row=2, min_col=1, max_col=5) # All rows, excluding header
+        api_lines_formatted: list[str] = [] # Formatted lines for translation
+        dict_translations: dict[int, str] = {}  # The translation output
+        pending_rows: list[tuple[int, Cell, str]] = []  # A list of rows that need translation
 
-        wanted_cols = [source_col, target_col]
-        if speaker_col:
-            wanted_cols.append(speaker_col)
-        if typemessage_col:
-            wanted_cols.append(typemessage_col)
-        min_col = min(wanted_cols)
-        max_col = max(wanted_cols)
-
-        def cell_at(row, column):
-            return row[column - min_col]
-
-        first_data_row = header_row + 1
-        for line_number, row in enumerate(
-            sheet.iter_rows(min_row=2, min_col=1, max_col=4),
-            start=1,
-        ):
-            message_type_cell, speaker_cell, source_cell, target_cell = row
+        for line_number, row in enumerate(all_rows,start=1):
+            # Read each row
+            message_type_cell, origin_speaker_cell, speaker_cell, source_cell, target_cell = row
+            # Check if the translation cell is not a MergedCell, these cannot be wrapped, so we skip them.
+            if isinstance(target_cell, MergedCell):
+                print(f"WARNING: A merged translation cell was found in line {line_number}.")
+                print("These can not be wrapped, skipping line.")
+                continue
+            # Converts None to empty string and strips leading whitespace
             source_text = safe_str(source_cell.value)
             existing_translation = safe_str(target_cell.value)
             speaker_info = safe_str(speaker_cell.value)
             message_type = safe_str(message_type_cell.value).lower()
 
-            needs_translation = source_text != "" and (
-                existing_translation == ""
-                or existing_translation.startswith("TRANSLATION_ERROR")
-            )
+            # Check if translation is required
+            needs_translation = source_text != "" and (existing_translation == "" or existing_translation.startswith("TRANSLATION_ERROR"))
             if not needs_translation:
                 continue
 
+            # TODO: Make this actually work in sentences.
             if source_text in NAME_TERM_TRANSLATIONS:
                 dict_translations[line_number] = NAME_TERM_TRANSLATIONS[source_text]
             else:
@@ -129,12 +122,15 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
                         text=source_text,
                     )
                 )
+
+            # Save a list of rows that need translation
             pending_rows.append((line_number, target_cell, message_type))
 
+        # TODO: This can be dangerous
         if not pending_rows and output_file_path.exists():
             print(f"No translations needed; refreshing output: {file_name}")
 
-        # Call the API if there are non-dictionary lines, then write results back
+        # Call the API and write the translated rows back
         if pending_rows:
             translated_batch_text = ""
             parsed_api_translations: dict[int, str] = {}
@@ -158,6 +154,7 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
                 target_cell.value = wrapped
         completed = True
     finally:
+        # TODO: Verify the 'output_file_exists' check
         if should_save and (completed or not output_file_exists):
             workbook.save(output_file_path)
             print(f"Saved: {file_name}")
