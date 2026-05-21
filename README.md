@@ -33,6 +33,10 @@ Rename `.env.example` to `.env`
 Set the `GOOGLE_CLOUD_PROJECT` variable in the `.env` file.
 
 ## TODO:
+  - ~~Unslopify the `process_excel_files.py`~~  In progress.
   - Load the speaking styles dynamically, based on which characters are in a given commu. 
-  - Unslopify the `process_excel_files.py` 
+  - Add a progress bar to the script.
+  - Add a QC gate to check if the rules are followed 
+  - Improve the translator logic
   - Add a concurrent executor to process the files in parallel, along with a RateLimiter to avoid exceeding API limits.
+  - Add a way to sync with Google Sheets.
