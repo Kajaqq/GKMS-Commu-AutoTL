@@ -2,6 +2,7 @@ import os
 from abc import ABC
 
 from google.genai import types as genai_types
+from google.genai.types import ThinkingLevel, HarmBlockThreshold, HarmCategory
 
 from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
 
@@ -24,32 +25,34 @@ class ModelConfig(ABC):
     )
 
     # Disable blocking content that the API deems 'unsafe'
-    BLOCK_NONE = genai_types.HarmBlockThreshold.BLOCK_NONE
+    BLOCK_NONE = HarmBlockThreshold.BLOCK_NONE
     safety_config = [
         genai_types.SafetySetting(
-            category=genai_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
             threshold=BLOCK_NONE,
         ),
         genai_types.SafetySetting(
-            category=genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+            category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
             threshold=BLOCK_NONE,
         ),
         genai_types.SafetySetting(
-            category=genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+            category=HarmCategory.HARM_CATEGORY_HARASSMENT,
             threshold=BLOCK_NONE,
         ),
     ]
+
     generation_config = genai_types.GenerateContentConfig(
         temperature=TEMPERATURE,
         system_instruction=SYSTEM_INSTRUCTIONS,
         safety_settings=safety_config,
         thinking_config=genai_types.ThinkingConfig(
-            thinking_level=genai_types.ThinkingLevel.MINIMAL
-        ),
+            thinking_level=ThinkingLevel.THINKING_LEVEL_UNSPECIFIED
+        )
     )
 
     @staticmethod
     def is_vertex_ai() -> bool:
+        # TODO: Find a better way to detect Vertex AI
         vertex_project = os.getenv("GOOGLE_CLOUD_PROJECT", None)
         return True if vertex_project else False
 
@@ -69,7 +72,8 @@ class ExcelConfig:
     SOURCE = "text"
     TARGET = "translated text"
     # Header for the speaker identification column
-    SPEAKER = "translated name"
+    ORIGINAL_SPEAKER = "name"
+    TRANSLATED_SPEAKER = "translated name"
     # Header for the message type column
     TYPE = "type"
 
