@@ -63,14 +63,12 @@ class TranslatorConfig:
 
 class ExcelConfig:
     # Headers for the source and target columns
-    SOURCE_HEADER = "text"
-    TARGET_HEADER = "translated text"
-
+    SOURCE = "text"
+    TARGET = "translated text"
     # Header for the speaker identification column
-    SPEAKER_HEADER = "translated name"
-
+    SPEAKER = "translated name"
     # Header for the message type column
-    TYPEMESSAGE_HEADER = "type"
+    TYPE = "type"
 
 class FormattingConfig:
     # Default character width for general text wrapping

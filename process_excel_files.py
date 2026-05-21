@@ -13,24 +13,23 @@ from text_utils import normalize_cell, safe_str
 from formatting import wrap_text
 from translator import translate_batch_with_gemini
 
-HEADER_SEARCH_ROWS = 10
+# --- Sheet utils ---
+expected_header = [
+    ExcelConfig.TYPE,
+    ExcelConfig.SPEAKER,
+    ExcelConfig.SOURCE,
+    ExcelConfig.TARGET,
+]
 
-
-# --- Header Locating ---
-def locate_header_row(sheet) -> tuple[int, dict[str, int]] | None:
-    max_search = min(sheet.max_row, HEADER_SEARCH_ROWS)
-    source_header = ExcelConfig.SOURCE_HEADER.lower()
-    for row_index in range(1, max_search + 1):
-        row_cells = sheet[row_index]
-        normalized = [normalize_cell(cell.value) for cell in row_cells]
-        if source_header in normalized:
-            header_map = {
-                name: idx + 1  # 1-based column index for sheet.cell()
-                for idx, name in enumerate(normalized)
-                if name
-            }
-            return row_index, header_map
-    return None
+def validate_header_row(sheet) -> None:
+    # Check if the header row is present and contains the expected headers
+    sheet_header = [normalize_cell(cell.value) for cell in sheet[1]]
+    if sheet_header != expected_header:
+        raise ValueError(
+            f"Header row has incorrect headers: "
+            f"Expected headers: {', '.join(expected_header)}."
+            f"File headers: {', '.join(sheet_header)}"
+        )
 
 # --- API Calling ---
 def request_translations_from_api(api_lines_formatted):
@@ -74,36 +73,16 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
     """
     file_name = source_file_path.name
     workbook = openpyxl.load_workbook(source_file_path)
+    sheet = workbook.active
     output_file_exists = output_file_path.exists()
     should_save = False
     completed = False
     try:
-        sheet = workbook.active
         if sheet is None:
-            print("Skipping: workbook has no active sheet.")
+            print(f"ERROR: Workbook is empty. Skipping {file_name}")
             return False
 
-        header_info = locate_header_row(sheet)
-        if header_info is None:
-            print(
-                f"Skipping: Header '{ExcelConfig.SOURCE_HEADER}' not found "
-                f"or file is empty."
-            )
-            return False
-
-        header_row, header_map = header_info
-
-        source_col = header_map.get(ExcelConfig.SOURCE_HEADER.lower())
-        target_col = header_map.get(ExcelConfig.TARGET_HEADER.lower())
-        speaker_col = header_map.get(ExcelConfig.SPEAKER_HEADER.lower())
-        typemessage_col = header_map.get(ExcelConfig.TYPEMESSAGE_HEADER.lower())
-
-        if source_col is None:
-            print(f"Error: Source header '{ExcelConfig.SOURCE_HEADER}' missing.")
-            return False
-        if target_col is None:
-            print(f"Error: Target header '{ExcelConfig.TARGET_HEADER}' missing.")
-            return False
+        validate_header_row(sheet)
         should_save = True
 
         # Collect rows that need translation
@@ -124,20 +103,14 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
 
         first_data_row = header_row + 1
         for line_number, row in enumerate(
-            sheet.iter_rows(min_row=first_data_row, min_col=min_col, max_col=max_col),
+            sheet.iter_rows(min_row=2, min_col=1, max_col=4),
             start=1,
         ):
-            source_text = safe_str(cell_at(row, source_col).value)
-            target_cell = cell_at(row, target_col)
+            message_type_cell, speaker_cell, source_cell, target_cell = row
+            source_text = safe_str(source_cell.value)
             existing_translation = safe_str(target_cell.value)
-            speaker_info = (
-                safe_str(cell_at(row, speaker_col).value) if speaker_col else ""
-            )
-            message_type = (
-                safe_str(cell_at(row, typemessage_col).value).lower()
-                if typemessage_col
-                else ""
-            )
+            speaker_info = safe_str(speaker_cell.value)
+            message_type = safe_str(message_type_cell.value).lower()
 
             needs_translation = source_text != "" and (
                 existing_translation == ""
