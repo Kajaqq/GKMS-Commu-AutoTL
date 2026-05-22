@@ -2,7 +2,7 @@ import os
 from abc import ABC
 
 from google.genai import types as genai_types
-from google.genai.types import ThinkingLevel, HarmBlockThreshold, HarmCategory
+from google.genai.types import HarmBlockThreshold, HarmCategory, ThinkingLevel
 
 from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
 
@@ -76,6 +76,7 @@ class ExcelConfig:
     TRANSLATED_SPEAKER = "translated name"
     # Header for the message type column
     TYPE = "type"
+
 
 class FormattingConfig:
     # Default character width for general text wrapping

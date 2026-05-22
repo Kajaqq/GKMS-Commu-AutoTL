@@ -12,6 +12,9 @@ TRANSLATION_PROMPT_TEMPLATE = """
 Character Speaking Styles:
 {character_styles_list}
 
+Glossary:
+{glossary_list}
+
 Lines to translate:
 {lines_to_translate}
 
@@ -24,6 +27,7 @@ Format: Raw text "Line [num]: [translation]"
 Preserve: ――, ～, ──.
 Convert: … to ...
 Names: First Last.
+Glossary: Use the glossary translations exactly when the matching source terms appear in a line.
 Stutters: "あ、あの" -> "U-Uhm" or "Uh...".
 Symbols: Allow ☆ at ends.
 Ellipses: Replace trailing commas with ...
