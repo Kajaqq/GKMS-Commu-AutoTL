@@ -28,13 +28,12 @@ def translate_batch_with_gemini(batch_prompt, model_name=AI_MODEL):
     client = get_client()
     generation_config = ModelConfig.generation_config
     try:
-        response = client.models.generate_content(
-            model=model_name, contents=batch_prompt, config=generation_config
-        )
-        if response and response.text:
-            return response.text.strip()
-        else:
-            raise ValueError("Empty response from the Gemini API for file")
+        response = client.models.generate_content(model=model_name, contents=batch_prompt, config=generation_config)
+        if not response or not response.text:
+            message = "Empty response from the Gemini API for file"
+            print(f"Error translating batch: {message}")
+            return f"BATCH_TRANSLATION_ERROR: {message}"
+        return response.text.strip()
     except Exception as e:
         print(f"Error translating batch: {e}")
         return f"BATCH_TRANSLATION_ERROR: {e}"

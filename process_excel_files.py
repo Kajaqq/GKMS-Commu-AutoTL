@@ -1,5 +1,6 @@
-import re
+import json
 from pathlib import Path
+from typing import Any, cast
 
 import openpyxl
 from openpyxl.cell.cell import Cell, MergedCell
@@ -37,6 +38,7 @@ def validate_header_row(sheet) -> None:
 
 # --- API Calling ---
 
+
 def find_glossary_entries(source_texts: list[str]) -> dict[str, str]:
     joined_source = "\n".join(source_texts)
     # Get which entries from glossary appear in the text, return only them
@@ -69,7 +71,60 @@ def build_translation_prompt(
     )
 
 
-def request_translations_from_api(api_lines_formatted, glossary_entries, character_names):
+def parse_translation_response(response_text: str, expected_line_numbers: list[int]) -> dict[int, str]:
+    try:
+        payload = json.loads(response_text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Gemini returned invalid JSON: {error}") from error
+
+    if not isinstance(payload, dict):
+        raise TypeError("Gemini returned a JSON value that is not an object.")
+    payload = cast(dict[str, Any], payload)
+
+    translations = payload.get("translations")
+    if not isinstance(translations, list):
+        raise TypeError("Gemini response is missing a translations list.")
+
+    parsed_translations: dict[int, str] = {}
+    for index, item in enumerate(translations, start=1):
+        if not isinstance(item, dict):
+            raise TypeError(f"Translation item {index} is not an object.")
+        item = cast(dict[str, Any], item)
+
+        line_number = item.get("line_number")
+        text = item.get("text")
+        if not isinstance(line_number, int) or isinstance(line_number, bool):
+            raise TypeError(f"Translation item {index} has an invalid line_number.")
+        if not isinstance(text, str):
+            raise TypeError(f"Translation item {index} has an invalid text value.")
+
+        text = text.strip()
+        if not text:
+            raise ValueError(f"Translation item {index} has empty text.")
+        if line_number in parsed_translations:
+            raise ValueError(f"Gemini returned duplicate translation for line {line_number}.")
+
+        parsed_translations[line_number] = text
+
+    expected_lines = set(expected_line_numbers)
+    received_lines = set(parsed_translations)
+    missing_lines = sorted(expected_lines - received_lines)
+    unexpected_lines = sorted(received_lines - expected_lines)
+    if missing_lines or unexpected_lines:
+        raise ValueError(
+            f"Gemini response line mismatch. Missing: {missing_lines or 'none'}; "
+            f"unexpected: {unexpected_lines or 'none'}."
+        )
+
+    return parsed_translations
+
+
+def request_translations_from_api(
+    api_lines_formatted: list[str],
+    api_line_numbers: list[int],
+    glossary_entries: dict[str, str],
+    character_names: set[str],
+):
     """Builds the prompt, calls the Gemini API, and parses the response.
 
     Returns a tuple of (raw_response_text, parsed_translations_dict).
@@ -81,12 +136,14 @@ def request_translations_from_api(api_lines_formatted, glossary_entries, charact
 
     parsed_api_translations = {}
     if not translated_batch_text.startswith("BATCH_TRANSLATION_ERROR"):
-        translated_lines = re.findall(
-            r"Line\s*(\d+)\s*[:.]?\s*(.*?)(?=\nLine\s*\d+\s*[:.]?|\Z)",
-            translated_batch_text,
-            re.DOTALL,
-        )
-        parsed_api_translations = {int(num): text.strip() for num, text in translated_lines}
+        try:
+            parsed_api_translations = parse_translation_response(
+                translated_batch_text,
+                api_line_numbers,
+            )
+        except (TypeError, ValueError) as error:
+            print(f"Error parsing Gemini response: {error}")
+            translated_batch_text = f"BATCH_TRANSLATION_ERROR: {error}"
 
     return translated_batch_text, parsed_api_translations
 
@@ -115,6 +172,7 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
         # ---- Setup variables ----
         all_rows = sheet.iter_rows(min_row=2, min_col=1, max_col=5)  # All rows, excluding header
         api_lines_formatted: list[str] = []  # Formatted lines for translation
+        api_line_numbers: list[int] = []
         api_source_texts: list[str] = []  # Source lines sent to the API, used for file-scoped glossary
         character_names: set[str] = set()
         dict_translations: dict[int, str] = {}  # The translation output
@@ -137,10 +195,8 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
             character_names.update(name for name in (origin_speaker_info, speaker_info) if name)
 
             # Check if translation is required
-            needs_translation = (
-                source_text != ""
-                and
-                (existing_translation == "" or existing_translation.startswith("TRANSLATION_ERROR"))
+            needs_translation = source_text != "" and (
+                existing_translation == "" or existing_translation.startswith("TRANSLATION_ERROR")
             )
             if not needs_translation:
                 continue
@@ -150,6 +206,7 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
                 dict_translations[line_number] = NAME_TERM_TRANSLATIONS[source_text]
             else:
                 api_source_texts.append(source_text)
+                api_line_numbers.append(line_number)
                 api_lines_formatted.append(
                     LINE_FORMAT_TEMPLATE.format(
                         line_number=line_number,
@@ -172,7 +229,7 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
             if api_lines_formatted:
                 glossary_entries = find_glossary_entries(api_source_texts)
                 translated_batch_text, parsed_api_translations = request_translations_from_api(
-                    api_lines_formatted, glossary_entries, character_names
+                    api_lines_formatted, api_line_numbers, glossary_entries, character_names
                 )
 
             for line_number, target_cell, message_type in pending_rows:

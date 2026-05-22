@@ -6,6 +6,33 @@ from google.genai.types import HarmBlockThreshold, HarmCategory, ThinkingLevel
 
 from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
 
+TRANSLATION_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "translations": {
+            "type": "array",
+            "description": "One translated item for each requested input line.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "line_number": {
+                        "type": "integer",
+                        "description": "The original input line number.",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "The translated text only, without speaker names.",
+                    },
+                },
+                "required": ["line_number", "text"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["translations"],
+    "additionalProperties": False,
+}
+
 
 class ModelConfig(ABC):
     GEMINI_MODEL = "gemini-3-flash-preview"
@@ -44,10 +71,10 @@ class ModelConfig(ABC):
     generation_config = genai_types.GenerateContentConfig(
         temperature=TEMPERATURE,
         system_instruction=SYSTEM_INSTRUCTIONS,
+        response_mime_type="application/json",
+        response_json_schema=TRANSLATION_RESPONSE_SCHEMA,
         safety_settings=safety_config,
-        thinking_config=genai_types.ThinkingConfig(
-            thinking_level=ThinkingLevel.THINKING_LEVEL_UNSPECIFIED
-        )
+        thinking_config=genai_types.ThinkingConfig(thinking_level=ThinkingLevel.THINKING_LEVEL_UNSPECIFIED),
     )
 
     @staticmethod
