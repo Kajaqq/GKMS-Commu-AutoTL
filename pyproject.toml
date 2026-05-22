@@ -10,3 +10,25 @@ dependencies = [
     "protobuf>=7.34.1",
     "python-dotenv"
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.14",
+    "ty>=0.0.38"
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+
+[tool.ruff.lint]
+extend-select = [
+    "UP",  # pyupgrade
+    "ASYNC",# flake8-async
+    "INP",
+    "PTH",
+    "PERF",
+    "FURB",
+    "TRY"
+]
+ignore = ['TRY003', 'E501']
