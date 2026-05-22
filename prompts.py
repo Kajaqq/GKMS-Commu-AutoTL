@@ -35,7 +35,7 @@ Producer: Capitalize only as a proper name.
 Emphasis: Use <u>tags</u> instead of <em>.
 Persona Mapping: For each input line, identify the speaker, consult their specific speaking style in the Context list, and apply only those traits to the English translation. Do not mix character traits.
 NEGATIVE CONSTRAINT: Do not use Markdown code blocks, do not explain your reasoning.
-NEGATIVE CONSTRAINT: No speaker names in output (If input "Speaker: ABC" -> Output : "ABC").
+NEGATIVE CONSTRAINT: Do not output the speaker names. | Line [num] (Speaker: [speaker]): [text] -> Line [num]: [translation] |
 NEGATIVE CONSTRAINT: Maintain honorifics only if they would sound natural in English. Do not include them if they disrupt the natural flow.
 """
 

@@ -43,21 +43,38 @@ def find_glossary_entries(source_texts: list[str]) -> dict[str, str]:
     return {source: translation for source, translation in NAME_TERM_TRANSLATIONS.items() if source in joined_source}
 
 
-def request_translations_from_api(api_lines_formatted, glossary_entries):
-    """Builds the prompt, calls the Gemini API, and parses the response.
+def find_character_styles(character_names: set[str]) -> dict[str, str]:
+    return {
+        name: style
+        for name, style in CHARACTER_SPEAKING_STYLES.items()
+        if any(character_name in name for character_name in character_names)
+    }
 
-    Returns a tuple of (raw_response_text, parsed_translations_dict).
-    """
-    character_styles_list_str = "\n".join(f"- {name}: {style}" for name, style in CHARACTER_SPEAKING_STYLES.items())
+
+def build_translation_prompt(
+    api_lines_formatted: list[str],
+    glossary_entries: dict[str, str],
+    character_names: set[str],
+) -> str:
+    character_styles = find_character_styles(character_names)
+    character_styles_list_str = "\n".join(f"- {name}: {style}" for name, style in character_styles.items())
     glossary_list_str = "\n".join(f"- {source}: {translation}" for source, translation in glossary_entries.items())
 
-    batch_prompt = TRANSLATION_PROMPT_TEMPLATE.format(
+    return TRANSLATION_PROMPT_TEMPLATE.format(
         source_lang=TranslatorConfig.SOURCE_LANGUAGE,
         target_lang=TranslatorConfig.TARGET_LANGUAGE,
         character_styles_list=character_styles_list_str or "None provided.",
         glossary_list=glossary_list_str or "None provided.",
         lines_to_translate="\n".join(api_lines_formatted),
     )
+
+
+def request_translations_from_api(api_lines_formatted, glossary_entries, character_names):
+    """Builds the prompt, calls the Gemini API, and parses the response.
+
+    Returns a tuple of (raw_response_text, parsed_translations_dict).
+    """
+    batch_prompt = build_translation_prompt(api_lines_formatted, glossary_entries, character_names)
 
     print(f"Sending {len(api_lines_formatted)} lines to Gemini...")
     translated_batch_text = translate_batch_with_gemini(batch_prompt)
@@ -99,6 +116,7 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
         all_rows = sheet.iter_rows(min_row=2, min_col=1, max_col=5)  # All rows, excluding header
         api_lines_formatted: list[str] = []  # Formatted lines for translation
         api_source_texts: list[str] = []  # Source lines sent to the API, used for file-scoped glossary
+        character_names: set[str] = set()
         dict_translations: dict[int, str] = {}  # The translation output
         pending_rows: list[tuple[int, Cell, str]] = []  # A list of rows that need translation
 
@@ -113,8 +131,10 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
             # Converts None to empty string and strips leading whitespace
             source_text = safe_str(source_cell.value)
             existing_translation = safe_str(target_cell.value)
+            origin_speaker_info = safe_str(origin_speaker_cell.value)
             speaker_info = safe_str(speaker_cell.value)
             message_type = safe_str(message_type_cell.value).lower()
+            character_names.update(name for name in (origin_speaker_info, speaker_info) if name)
 
             # Check if translation is required
             needs_translation = (
@@ -152,7 +172,7 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
             if api_lines_formatted:
                 glossary_entries = find_glossary_entries(api_source_texts)
                 translated_batch_text, parsed_api_translations = request_translations_from_api(
-                    api_lines_formatted, glossary_entries
+                    api_lines_formatted, glossary_entries, character_names
                 )
 
             for line_number, target_cell, message_type in pending_rows:
