@@ -1,6 +1,4 @@
-import json
 from pathlib import Path
-from typing import Any, cast
 
 import openpyxl
 from openpyxl.cell.cell import Cell, MergedCell
@@ -12,7 +10,7 @@ from config import ExcelConfig, TranslatorConfig
 from dictionary import NAME_TERM_TRANSLATIONS
 from formatting import wrap_text
 from prompts import LINE_FORMAT_TEMPLATE, TRANSLATION_PROMPT_TEMPLATE
-from text_utils import normalize_cell, safe_str
+from text_utils import normalize_cell, parse_translation_response, safe_str
 from translator import translate_batch_with_gemini
 
 # --- Sheet utils ---
@@ -23,7 +21,6 @@ expected_header = [
     ExcelConfig.SOURCE,
     ExcelConfig.TARGET,
 ]
-
 
 def validate_header_row(sheet) -> None:
     # Check if the header row is present and contains the expected headers
@@ -38,12 +35,10 @@ def validate_header_row(sheet) -> None:
 
 # --- API Calling ---
 
-
 def find_glossary_entries(source_texts: list[str]) -> dict[str, str]:
     joined_source = "\n".join(source_texts)
     # Get which entries from glossary appear in the text, return only them
     return {source: translation for source, translation in NAME_TERM_TRANSLATIONS.items() if source in joined_source}
-
 
 def find_character_styles(character_names: set[str]) -> dict[str, str]:
     return {
@@ -51,7 +46,6 @@ def find_character_styles(character_names: set[str]) -> dict[str, str]:
         for name, style in CHARACTER_SPEAKING_STYLES.items()
         if any(character_name in name for character_name in character_names)
     }
-
 
 def build_translation_prompt(
     api_lines_formatted: list[str],
@@ -69,55 +63,6 @@ def build_translation_prompt(
         glossary_list=glossary_list_str or "None provided.",
         lines_to_translate="\n".join(api_lines_formatted),
     )
-
-
-def parse_translation_response(response_text: str, expected_line_numbers: list[int]) -> dict[int, str]:
-    try:
-        payload = json.loads(response_text)
-    except json.JSONDecodeError as error:
-        raise ValueError(f"Gemini returned invalid JSON: {error}") from error
-
-    if not isinstance(payload, dict):
-        raise TypeError("Gemini returned a JSON value that is not an object.")
-    payload = cast(dict[str, Any], payload)
-
-    translations = payload.get("translations")
-    if not isinstance(translations, list):
-        raise TypeError("Gemini response is missing a translations list.")
-
-    parsed_translations: dict[int, str] = {}
-    for index, item in enumerate(translations, start=1):
-        if not isinstance(item, dict):
-            raise TypeError(f"Translation item {index} is not an object.")
-        item = cast(dict[str, Any], item)
-
-        line_number = item.get("line_number")
-        text = item.get("text")
-        if not isinstance(line_number, int) or isinstance(line_number, bool):
-            raise TypeError(f"Translation item {index} has an invalid line_number.")
-        if not isinstance(text, str):
-            raise TypeError(f"Translation item {index} has an invalid text value.")
-
-        text = text.strip()
-        if not text:
-            raise ValueError(f"Translation item {index} has empty text.")
-        if line_number in parsed_translations:
-            raise ValueError(f"Gemini returned duplicate translation for line {line_number}.")
-
-        parsed_translations[line_number] = text
-
-    expected_lines = set(expected_line_numbers)
-    received_lines = set(parsed_translations)
-    missing_lines = sorted(expected_lines - received_lines)
-    unexpected_lines = sorted(received_lines - expected_lines)
-    if missing_lines or unexpected_lines:
-        raise ValueError(
-            f"Gemini response line mismatch. Missing: {missing_lines or 'none'}; "
-            f"unexpected: {unexpected_lines or 'none'}."
-        )
-
-    return parsed_translations
-
 
 def request_translations_from_api(
     api_lines_formatted: list[str],
@@ -265,8 +210,7 @@ def process_excel_files_in_folder(
     output_folder = Path(output_folder_path)
 
     if not source_folder.is_dir():
-        print(f"Error: Source folder not found at {source_folder}")
-        return processed_count
+        raise ValueError(f"Error: Source folder not found at {source_folder}")
 
     output_folder.mkdir(parents=True, exist_ok=True)
 
