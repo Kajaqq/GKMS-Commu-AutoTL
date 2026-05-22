@@ -1,7 +1,7 @@
 import os
 
-from google import genai
 from dotenv import load_dotenv
+from google import genai
 
 from config import ModelConfig
 
@@ -23,18 +23,29 @@ def get_client():
     return client
 
 
-def translate_batch_with_gemini(batch_prompt, model_name=AI_MODEL):
+def print_debug(batch_prompt, model_name, generation_config):
+    print(
+        f"--- Debugging Info ---\n"
+        f"Model: {model_name}\n"
+        f"Temperature: {generation_config.temperature}\n"
+        f"System Instruction:\n{generation_config.system_instruction}\n"
+        f"Batch prompt:\n{batch_prompt}"
+    )
+
+def translate_batch_with_gemini(batch_prompt, model_name=AI_MODEL, debug=False):
     """Calls the Gemini API client with a single batch prompt."""
     client = get_client()
     generation_config = ModelConfig.generation_config
+    if debug:
+        print_debug(batch_prompt, model_name, generation_config)
     try:
-        response = client.models.generate_content(
-            model=model_name, contents=batch_prompt, config=generation_config
-        )
-        if response and response.text:
-            return response.text.strip()
+        response = client.models.generate_content(model=model_name, contents=batch_prompt, config=generation_config)
+        if not response or not response.text:
+            message = "Empty response from the Gemini API for file"
+            print(f"Error translating batch: {message}")
+            return f"BATCH_TRANSLATION_ERROR: {message}"
         else:
-            raise ValueError("Empty response from the Gemini API for file")
+            return response.text.strip()
     except Exception as e:
         print(f"Error translating batch: {e}")
         return f"BATCH_TRANSLATION_ERROR: {e}"

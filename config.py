@@ -4,7 +4,7 @@ from abc import ABC
 from google.genai import types as genai_types
 from google.genai.types import HarmBlockThreshold, HarmCategory, ThinkingLevel
 
-from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
+from prompts import TRANSLATION_RESPONSE_SCHEMA, TRANSLATION_SYSTEM_INSTRUCTIONS
 
 
 class ModelConfig(ABC):
@@ -44,10 +44,10 @@ class ModelConfig(ABC):
     generation_config = genai_types.GenerateContentConfig(
         temperature=TEMPERATURE,
         system_instruction=SYSTEM_INSTRUCTIONS,
+        response_mime_type="application/json",
+        response_json_schema=TRANSLATION_RESPONSE_SCHEMA,
         safety_settings=safety_config,
-        thinking_config=genai_types.ThinkingConfig(
-            thinking_level=ThinkingLevel.THINKING_LEVEL_UNSPECIFIED
-        )
+        thinking_config=genai_types.ThinkingConfig(thinking_level=ThinkingLevel.THINKING_LEVEL_UNSPECIFIED),
     )
 
     @staticmethod
@@ -55,7 +55,6 @@ class ModelConfig(ABC):
         # TODO: Find a better way to detect Vertex AI
         vertex_project = os.getenv("GOOGLE_CLOUD_PROJECT", None)
         return True if vertex_project else False
-
 
 class TranslatorConfig:
     # Language settings
@@ -66,7 +65,6 @@ class TranslatorConfig:
     SOURCE_FOLDER_PATH = "IN"
     OUTPUT_FOLDER_PATH = "OUT"
 
-
 class ExcelConfig:
     # Headers for the source and target columns
     SOURCE = "text"
@@ -76,7 +74,6 @@ class ExcelConfig:
     TRANSLATED_SPEAKER = "translated name"
     # Header for the message type column
     TYPE = "type"
-
 
 class FormattingConfig:
     # Default character width for general text wrapping

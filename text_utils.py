@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 # Dash-like sequences/characters normalized to ―― or ―
@@ -45,3 +46,38 @@ def safe_str(value: Any) -> str:
 
 def normalize_cell(value: Any) -> str:
     return safe_str(value).lower()
+
+def parse_translation_response(response_text: str, expected_line_numbers: list[int]) -> dict[int, str]:
+    try:
+        payload = json.loads(response_text)
+        translations = payload.get("translations")
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Gemini returned invalid JSON: {error}") from error
+
+    parsed_translations: dict[int, str] = {}
+    for index, item in enumerate(translations, start=1):
+        line_number = item.get("line_number")
+        text = item.get("text").strip()
+        if not isinstance(line_number, int):
+             raise TypeError(f"Translation item {index} has an invalid line_number. Expected an integer. Got: {type(line_number)}")
+        if not isinstance(text, str):
+             raise TypeError(f"Translation item {index} has an invalid text value. Expected a string. Got: {type(text)}")
+        if not text:
+            print (f"WARNING: Translation item {index} has empty text. Skipping.")
+            continue
+        if line_number in parsed_translations:
+            print(f"WARNING: Gemini returned duplicate translation for line {line_number}.")
+        parsed_translations[line_number] = text
+
+    expected_lines = set(expected_line_numbers)
+    received_lines = set(parsed_translations)
+    missing_lines = sorted(expected_lines - received_lines)
+    unexpected_lines = sorted(received_lines - expected_lines)
+    if missing_lines or unexpected_lines:
+        raise ValueError(
+            f"Gemini response line mismatch. "
+            f"Missing Lines: {missing_lines}; "
+            f"Unexpected Lines: {unexpected_lines}."
+        )
+
+    return parsed_translations

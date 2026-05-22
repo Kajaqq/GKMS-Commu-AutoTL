@@ -25,7 +25,7 @@ It supports both Google AI Studio and Vertex AI API.
 ### For Google AI Studio usage:
 Rename `.env.example` to `.env` 
 
-Set the `GEMINI_API_KEY` variable in the `.env` file.
+Set the `AI_STUDIO_API_KEY` variable in the `.env` file.
 
 ### For Vertex AI usage:
 Rename `.env.example` to `.env` 
@@ -34,9 +34,8 @@ Set the `GOOGLE_CLOUD_PROJECT` variable in the `.env` file.
 
 ## TODO:
   - ~~Unslopify the `process_excel_files.py`~~  In progress.
-  - Load the speaking styles dynamically, based on which characters are in a given commu. 
+  - ~~Load the speaking styles dynamically, based on which characters are in a given commu.~~ Done.
+  - Improve the translator logic to allow translating multiple files in parallel.
   - Add a progress bar to the script.
-  - Add a QC gate to check if the rules are followed 
-  - Improve the translator logic
-  - Add a concurrent executor to process the files in parallel, along with a RateLimiter to avoid exceeding API limits.
+  - Add a QC gate to check if the rules are followed
   - Add a way to sync with Google Sheets.

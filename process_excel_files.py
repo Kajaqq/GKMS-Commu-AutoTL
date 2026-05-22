@@ -1,4 +1,3 @@
-import re
 from pathlib import Path
 
 import openpyxl
@@ -11,7 +10,7 @@ from config import ExcelConfig, TranslatorConfig
 from dictionary import NAME_TERM_TRANSLATIONS
 from formatting import wrap_text
 from prompts import LINE_FORMAT_TEMPLATE, TRANSLATION_PROMPT_TEMPLATE
-from text_utils import normalize_cell, safe_str
+from text_utils import normalize_cell, parse_translation_response, safe_str
 from translator import translate_batch_with_gemini
 
 # --- Sheet utils ---
@@ -22,7 +21,6 @@ expected_header = [
     ExcelConfig.SOURCE,
     ExcelConfig.TARGET,
 ]
-
 
 def validate_header_row(sheet) -> None:
     # Check if the header row is present and contains the expected headers
@@ -42,14 +40,12 @@ def find_glossary_entries(source_texts: list[str]) -> dict[str, str]:
     # Get which entries from glossary appear in the text, return only them
     return {source: translation for source, translation in NAME_TERM_TRANSLATIONS.items() if source in joined_source}
 
-
 def find_character_styles(character_names: set[str]) -> dict[str, str]:
     return {
         name: style
         for name, style in CHARACTER_SPEAKING_STYLES.items()
         if any(character_name in name for character_name in character_names)
     }
-
 
 def build_translation_prompt(
     api_lines_formatted: list[str],
@@ -68,8 +64,12 @@ def build_translation_prompt(
         lines_to_translate="\n".join(api_lines_formatted),
     )
 
-
-def request_translations_from_api(api_lines_formatted, glossary_entries, character_names):
+def request_translations_from_api(
+    api_lines_formatted: list[str],
+    api_line_numbers: list[int],
+    glossary_entries: dict[str, str],
+    character_names: set[str],
+):
     """Builds the prompt, calls the Gemini API, and parses the response.
 
     Returns a tuple of (raw_response_text, parsed_translations_dict).
@@ -81,12 +81,14 @@ def request_translations_from_api(api_lines_formatted, glossary_entries, charact
 
     parsed_api_translations = {}
     if not translated_batch_text.startswith("BATCH_TRANSLATION_ERROR"):
-        translated_lines = re.findall(
-            r"Line\s*(\d+)\s*[:.]?\s*(.*?)(?=\nLine\s*\d+\s*[:.]?|\Z)",
-            translated_batch_text,
-            re.DOTALL,
-        )
-        parsed_api_translations = {int(num): text.strip() for num, text in translated_lines}
+        try:
+            parsed_api_translations = parse_translation_response(
+                translated_batch_text,
+                api_line_numbers,
+            )
+        except (TypeError, ValueError) as error:
+            print(f"Error parsing Gemini response: {error}")
+            translated_batch_text = f"BATCH_TRANSLATION_ERROR: {error}"
 
     return translated_batch_text, parsed_api_translations
 
@@ -115,6 +117,7 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
         # ---- Setup variables ----
         all_rows = sheet.iter_rows(min_row=2, min_col=1, max_col=5)  # All rows, excluding header
         api_lines_formatted: list[str] = []  # Formatted lines for translation
+        api_line_numbers: list[int] = []
         api_source_texts: list[str] = []  # Source lines sent to the API, used for file-scoped glossary
         character_names: set[str] = set()
         dict_translations: dict[int, str] = {}  # The translation output
@@ -137,10 +140,8 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
             character_names.update(name for name in (origin_speaker_info, speaker_info) if name)
 
             # Check if translation is required
-            needs_translation = (
-                source_text != ""
-                and
-                (existing_translation == "" or existing_translation.startswith("TRANSLATION_ERROR"))
+            needs_translation = source_text != "" and (
+                existing_translation == "" or existing_translation.startswith("TRANSLATION_ERROR")
             )
             if not needs_translation:
                 continue
@@ -150,6 +151,7 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
                 dict_translations[line_number] = NAME_TERM_TRANSLATIONS[source_text]
             else:
                 api_source_texts.append(source_text)
+                api_line_numbers.append(line_number)
                 api_lines_formatted.append(
                     LINE_FORMAT_TEMPLATE.format(
                         line_number=line_number,
@@ -172,7 +174,7 @@ def process_workbook(source_file_path: Path, output_file_path: Path) -> bool:
             if api_lines_formatted:
                 glossary_entries = find_glossary_entries(api_source_texts)
                 translated_batch_text, parsed_api_translations = request_translations_from_api(
-                    api_lines_formatted, glossary_entries, character_names
+                    api_lines_formatted, api_line_numbers, glossary_entries, character_names
                 )
 
             for line_number, target_cell, message_type in pending_rows:
@@ -208,8 +210,7 @@ def process_excel_files_in_folder(
     output_folder = Path(output_folder_path)
 
     if not source_folder.is_dir():
-        print(f"Error: Source folder not found at {source_folder}")
-        return processed_count
+        raise ValueError(f"Error: Source folder not found at {source_folder}")
 
     output_folder.mkdir(parents=True, exist_ok=True)
 
