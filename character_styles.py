@@ -1,35 +1,21 @@
-# --- character_styles.py ---
-# This file contains a dictionary defining speaking styles for specific characters.
-
-# Define the dictionary. The keys are the character names (from the "translated name" column),
-# and the values are descriptions of their speaking style (dialects, accents, mannerisms).
 CHARACTER_SPEAKING_STYLES = {
-    "Saki": "Female, High Schooler, Speaks energetically, and might sometimes refers to herself in third person",
-    "Temari": "Female, High Schooler, Speaks with a harsh tone that usually came out of being socially awkward, but has a gentle and shy side",
-    "Kotone": "Female, High Schooler, Speak with a cheerful and slightly informal tone",
-    "Mao": "Female, High Schooler, Dorm head of the idol school, caring",
-    "Lilja": "Female, High Schooler, Speaks shyly",
-    "China": "Female, High Schooler, Speaks with a wide range of vocabulary while still sounding innocent and graceful",
-    "Sumika": "Female, High Schooler, Speaks with gyaru slangs, use valley girl accents in english when she's speaking informally",
-    "Hiro": "Female, High Schooler, A genius girl who gives off a mysterious vibe",
-    "Rinami": "Female, High Schooler, Speaks like an older sister",
-    "Ume": "Female, High Schooler, Speaks loudly, and like a younger sister, might also incorporate gen alpha slangs, a little bit airheaded",
-    "Misuzu": "Female, High Schooler, Speaks relaxingly",
-    "Sena": "Female, High Schooler, Speaks confidently",
-    "Tsubame": "Female, High Schooler, Speaks in a harsh and direct tone that might scare younger girls",
-    "Rinha": "Female, High Schooler, Speaks in a cool manner",
-    "Misuzu": "Female, High Schooler, Speaks in calm and laid back manner",
-    "Shion": "Female, High Schooler, Antagonist, wide range of vocabulary",
-    "Gekka": "Female, High Schooler, Antagonist, wide range of vocabulary",
-    "Nadeshiko": "Female, High Schooler, Antagonist, Speaks like a spoiled brat",
-    "Asari-sensei": "Female, Speaks like a mature teacher",
-    "{user}": "Male, Speaks like a college student"
-    # Add more characters and their speaking style descriptions as needed
-    # "Character Name": "Description of their speaking style.",
+    "Saki (aliases: 咲季, 花海咲季)": "Female high-school student. Energetic, direct, hyper-competitive, and hates losing. Self-reference is normally わたし; do not default to third-person self-reference unless a specific source line proves it.",
+    "Temari (aliases: 手毬, 月村手毬)": "Female high-school student. Cool, stoic, sarcastic, and sharp-tongued on the surface; underneath she can be clingy, fragile, lazy, and awkwardly dependent.",
+    "Kotone (aliases: ことね, 藤田ことね)": "Female high-school student. Cheerful, cute, informal, approval-seeking, and money-conscious. Can sound sweet, calculating, or comically self-serving depending on context.",
+    "Mao (aliases: 麻央, 有村麻央)": "Female high-school student. Dorm head and caring upperclassman. Uses a princely, gentle ボク voice; aims for coolness but is also nurturing, elegant, and slightly theatrical.",
+    "Lilja (aliases: リーリヤ, 葛城リーリヤ)": "Female high-school student. Shy, self-effacing, nervous, and earnest. Speaks humbly, with quiet determination when it matters.",
+    "China (aliases: 千奈, 倉本千奈)": "Female high-school student. Sheltered ojou-sama type: innocent, graceful, polite, and enthusiastic. Uses わたくし and refined ですわ-like elegance.",
+    "Sumika (aliases: 清夏, 紫雲清夏)": "Female high-school student. Bright, friendly, unserious gyaru. Uses あたし and casual nicknames/slang. A light Valley-girl flavor can work in informal English, but avoid over-caricaturing her.",
+    "Hiro (aliases: 広, 篠澤広)": "Female high-school student. Mysterious genius. Calm, odd, blunt, and fascinated by hardship or failure; can sound detached or quietly delighted by strange things.",
+    "Rinami (aliases: 莉波, 姫崎莉波)": "Female high-school student. Mature, gentle onee-san archetype. Caring, composed, domestic, and softly teasing or attentive. May refer to herself as 私 or お姉さん in onee-san contexts.",
+    "Ume (aliases: 佑芽, 花海佑芽)": "Female high-school student. Loud, energetic, athletic younger-sister type who adores Saki. Slightly airheaded and straightforward. Use modern youthful slang only when the Japanese line is deliberately slangy or hyper-casual.",
+    "Sena (aliases: 星南, 十王星南)": "Female high-school student. Student council president and elite idol. Proud, confident, dignified, and charismatic; speaks like someone used to being admired and obeyed.",
+    "Tsubame (aliases: 燕, 雨夜燕)": "Female high-school student. Student council vice president. Proud, strict, direct, severe, and intimidating, but responsible and caring underneath. Formal/commanding diction; uses harsh second-person forms such as 貴様 in some contexts, but do not overuse archaic English unless the source line warrants it.",
+    "Rinha (aliases: 燐羽, 賀陽燐羽)": "Female high-school student, rival-school character. Cool, strict, sharp, and duty/contract-minded; can be harsh, but has a loyal and caring core. Lower-confidence than main roster: verify against in-game lines.",
+    "Misuzu (aliases: 美鈴, 秦谷美鈴)": "Female high-school student. Calm, laid-back, sleepy, gentle, and indulgent. Speaks softly and at her own pace; tends to be kind and pampering.",
+    "Shion (aliases: 四音, 白草四音)": "Female high-school student, rival/antagonistic character. Polite and composed on the surface, but cold, strategic, and cutting. Can shift between 私 and ボク depending on composure/emotional state; verify against the exact scene.",
+    "Gekka (aliases: 月花, 白草月花)": "Female high-school student, rival/antagonistic character. Top-class, cold, terse, dismissive, and authoritative. Speaks with intimidating economy rather than flowery verbosity; calls others with demeaning labels like 雛鳥 in some contexts.",
+    "Nadeshiko (aliases: 撫子, 藍井撫子)": "Female high-school student, rival/antagonistic character. Spoiled ojou-sama/brat type: high-handed, self-confident, dramatic, and あたくし-coded. More comic-small-villain than truly composed.",
+    "Asari-sensei (aliases: 亜紗里, 根緒亜紗里, あさり先生)": "Female teacher. Friendly, kind homeroom-teacher voice. Mature, supportive, and approachable rather than stern.",
+    "{user} (aliases/called as: プロデューサー, 先輩, 先生, Pっち, Producer)": "Male Producer character. First-person: 俺, with rare context-specific 私. A first-year student in Hatsuboshi Academy’s Producer Department / professional college track. Speaks politely by default, usually addressing idols with name/surname + さん or similar respectful forms, but is cool-headed, analytical, blunt, and willing to say harsh truths when needed. Feels like a young elite producer rather than a casual peer: physically close to the idols as a fellow student, but mentally positioned as a reliable adult mentor."
 }
-
-# You can add other dictionaries here if you have different style definitions
-# ANOTHER_STYLE_DICTIONARY = {
-#     "Style A": "Description A",
-#     "Style B": "Description B",
-# }

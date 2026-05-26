@@ -1,9 +1,4 @@
-# --- dictionary.py ---
-# This file contains a dictionary of pre-defined translations for specific names or terms.
-
-# Define the dictionary. The keys are the source (Japanese) terms/names,
-# and the values are their desired English translations.
-# Ensure consistent casing if needed, or handle case-insensitivity in the main script.
+# Source (Japanese) terms/names, {japanese:english} format
 NAME_TERM_TRANSLATIONS = {
     "咲季": "Saki",
     "佑芽": "Ume",
@@ -34,10 +29,9 @@ NAME_TERM_TRANSLATIONS = {
     "十王邦夫": "Kunio Juo",
     "根緒亜紗里": "Asari Neo",
     "あさり先生": "Asari-Sensei",
-    "ボイストレーナー": "Voice Trainer",
+    "ボーカルトレーナー": "Vocal Trainer",
     "ダンストレーナー": "Dance Trainer",
     "ビジュアルトレーナー": "Visual Trainer",
-    "ボーカルトレーナー": "Vocal Trainer",
     "女子生徒": "Schoolgirl",
     "スタッフ": "Staff",
     "担任教師": "Homeroom Teacher",
@@ -58,12 +52,6 @@ NAME_TERM_TRANSLATIONS = {
     "月花": "Gekka",
     "四音": "Shion",
     "燕": "Tsubame",
-    "あさり先生": "Asari-Sensei",
-    "ボイストレーナー": "Voice Trainer",
-    "ダンストレーナー": "Dance Trainer",
-    "ビジュアルトレーナー": "Visual Trainer",
-    "ボーカルトレーナー": "Vocal Trainer",
-
     "花海 咲季": "Saki Hanami",
     "花海 佑芽": "Ume Hanami",
     "月村 手毬": "Temari Tsukimura",
@@ -83,7 +71,6 @@ NAME_TERM_TRANSLATIONS = {
     "藍井 撫子": "Nadeshiko Aoi",
     "白草 月花": "Gekka Shirakusa",
     "白草 四音": "Shion Shirakusa",
-
     "花海": "Hanami",
     "月村": "Tsukimura",
     "藤田": "Fujita",
@@ -103,20 +90,13 @@ NAME_TERM_TRANSLATIONS = {
     "真城優": "Mashiro Yu",
     "真城": "Mashiro",
     "優": "Mashiro Yu",
-
     "初星学園": "Hatsuboshi Academy",
     "極月学園": "Gokugetsu Academy",
     "一番星": "Prima Stella",
     "プリマステラ": "Prima Stella",
     "天川": "Amagawa",
     "天川市": "Amagawa City",
-    "～": "～"
+    "～": "～",
     # Add more names and terms as needed",
     # "Source Japanese Term"": ""Desired English Translation",
 }
-
-# You can add other dictionaries here if you have different types of terms
-# ANOTHER_DICTIONARY = {
-#     "Term A"": ""Translation A",
-#     "Term B"": ""Translation B",
-# }

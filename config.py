@@ -1,37 +1,102 @@
-# --- config.py ---
-# This file contains configuration variables for the Excel translation script.
+import os
+from abc import ABC
 
-# IMPORTANT: Replace with your actual values
-# Your Google AI Studio API Key for Gemini
-GEMINI_API_KEY = 'API_KEY'
+from google.genai import types as genai_types
+from google.genai.types import HarmBlockThreshold, HarmCategory, ThinkingLevel
 
-# The local folder path containing the Excel files (.xlsx) you want to translate
-SOURCE_FOLDER_PATH = 'IN'
+from prompts import TRANSLATION_RESPONSE_SCHEMA, TRANSLATION_SYSTEM_INSTRUCTIONS
 
-# The local folder path where you want to save the translated Excel files
-# This folder will be created if it doesn't exist.
-OUTPUT_FOLDER_PATH = 'OUT'
 
-# The target language for translation (e.g., 'English')
-TARGET_LANGUAGE = 'English'
+class ModelConfig(ABC):
+    GEMINI_MODEL = "gemini-3-flash-preview"
 
-# The source language (explicitly Japanese as requested)
-SOURCE_LANGUAGE = 'Japanese'
+    # Model Temperature - for Gemini 3 series, keep it at 1.0, for older models try 0.1-0.3
+    TEMPERATURE = 1.0
 
-# The Gemini model to use (using the specified preview model)
-GEMINI_MODEL = 'gemini-3.1-flash-lite-preview'
+    # System Instructions to use
+    SYSTEM_INSTRUCTIONS = TRANSLATION_SYSTEM_INSTRUCTIONS
 
-# Temperature for translation (0.0 to 1.0, lower is less random)
-TEMPERATURE = 0.2
+    # Used with Vertex AI, helps with rate-limiting errors
+    flex_mode = genai_types.HttpOptions(
+        headers={
+            "X-Vertex-AI-LLM-Request-Type": "shared",
+            "X-Vertex-AI-LLM-Shared-Request-Type": "flex",
+        }
+    )
 
-# Headers for the source and target columns
-SOURCE_HEADER = "text"
-TARGET_HEADER = "translated text"
+    # Disable blocking content that the API deems 'unsafe'
+    BLOCK_NONE = HarmBlockThreshold.BLOCK_NONE
+    safety_config = [
+        genai_types.SafetySetting(
+            category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            threshold=BLOCK_NONE,
+        ),
+        genai_types.SafetySetting(
+            category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+            threshold=BLOCK_NONE,
+        ),
+        genai_types.SafetySetting(
+            category=HarmCategory.HARM_CATEGORY_HARASSMENT,
+            threshold=BLOCK_NONE,
+        ),
+    ]
 
-# Header for the speaker identification column
-SPEAKER_HEADER = "translated name"
+    generation_config = genai_types.GenerateContentConfig(
+        temperature=TEMPERATURE,
+        system_instruction=SYSTEM_INSTRUCTIONS,
+        response_mime_type="application/json",
+        response_json_schema=TRANSLATION_RESPONSE_SCHEMA,
+        safety_settings=safety_config,
+        thinking_config=genai_types.ThinkingConfig(thinking_level=ThinkingLevel.THINKING_LEVEL_UNSPECIFIED),
+    )
 
-# Header for the message type column (assuming column A)
-TYPEMESSAGE_HEADER = "type"
+    @staticmethod
+    def is_vertex_ai() -> bool:
+        # TODO: Find a better way to detect Vertex AI
+        vertex_project = os.getenv("GOOGLE_CLOUD_PROJECT", None)
+        return True if vertex_project else False
 
-# Note: Formatting configuration is now in formatting.py
+class TranslatorConfig:
+    # Language settings
+    TARGET_LANGUAGE = "English"
+    SOURCE_LANGUAGE = "Japanese"
+
+    # xlsx files paths
+    SOURCE_FOLDER_PATH = "IN"
+    OUTPUT_FOLDER_PATH = "OUT"
+
+class ExcelConfig:
+    # Headers for the source and target columns
+    SOURCE = "text"
+    TARGET = "translated text"
+    # Header for the speaker identification column
+    ORIGINAL_SPEAKER = "name"
+    TRANSLATED_SPEAKER = "translated name"
+    # Header for the message type column
+    TYPE = "type"
+
+class FormattingConfig:
+    # Default character width for general text wrapping
+    DEFAULT_MAX_CHARS_PER_LINE = 40
+
+    # Message types treated as dialogue (subject to dialogue line-break limit)
+    DIALOGUE_TYPES = ["message", "messagelog"]
+    DEFAULT_MAX_DIALOGUE_LINE_BREAKS = 4
+
+    # File-name prefixes that trigger special rules
+    ADV_PEVENT_PREFIX = "adv_pevent_002_"
+    ADV_UNIT_PREFIX = "adv_unit_"  # adv_unit_ skips width-based wrapping
+
+    # Single-line/bubble choice rules for adv_pevent_ files.
+    # Fallback width when per-line limits are not set.
+    ADV_PEVENT_MAX_CHARS = 29
+    ADV_PEVENT_MAX_CHOICE_BREAKS = 3
+
+    # Per-line limits for adv_pevent_ choices; set to None to use ADV_PEVENT_MAX_CHARS instead.
+    ADV_PEVENT_CHOICE_LINE1_CHARS = None
+    ADV_PEVENT_CHOICE_LINE2_CHARS = None
+    ADV_PEVENT_CHOICE_LINE3_CHARS = None
+
+    # Bubble-choice rules for non-adv_pevent_ files (approx. 34 full-width / 43 half-width)
+    OTHER_MAX_CHARS = 43
+    OTHER_MAX_CHOICE_BREAKS = 3
