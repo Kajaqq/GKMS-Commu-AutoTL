@@ -1,10 +1,14 @@
-import json
 from typing import Any
+
+from pydantic import ValidationError
+
+from character_styles import CHARACTER_SPEAKING_STYLES
+from dictionary import NAME_TERM_TRANSLATIONS
+from Models import PromptReferences, SourceLine, TranslationResponse
 
 # Dash-like sequences/characters normalized to ―― or ―
 _DOUBLE_DASH_REPLACEMENTS = ("--", "ーー", "——", "──")
 _SINGLE_DASH_REPLACEMENTS = ("ー", "—", "─")
-
 
 def strip_wrapping_quotes(text: str) -> str:
     """Remove surrounding "..." or \"\"\"...\"\"\" that models sometimes emit."""
@@ -47,37 +51,50 @@ def safe_str(value: Any) -> str:
 def normalize_cell(value: Any) -> str:
     return safe_str(value).lower()
 
+def get_prompt_refrences(source_lines: list[SourceLine]) -> PromptReferences:
+    """Returns a `PromptReferences` object containing references to glossary entries and character styles."""
+    character_names = {line.speaker for line in source_lines if line.speaker}
+    source_text = "\n".join(line.text for line in source_lines)
+
+    return PromptReferences(
+        glossary_entries=[
+            f"{term}: {translation}"
+            for term, translation in NAME_TERM_TRANSLATIONS.items()
+            if term in source_text
+        ],
+        character_styles=[
+            f"{name}: {style}"
+            for name, style in CHARACTER_SPEAKING_STYLES.items()
+            if any(character_name in name for character_name in character_names)
+        ],
+    )
+
+
 def parse_translation_response(response_text: str, expected_line_numbers: list[int]) -> dict[int, str]:
     try:
-        payload = json.loads(response_text)
-        translations = payload.get("translations")
-    except json.JSONDecodeError as error:
-        raise ValueError(f"Gemini returned invalid JSON: {error}") from error
-
-    parsed_translations: dict[int, str] = {}
-    for index, item in enumerate(translations, start=1):
-        line_number = item.get("line_number")
-        text = item.get("text").strip()
-        if not isinstance(line_number, int):
-             raise TypeError(f"Translation item {index} has an invalid line_number. Expected an integer. Got: {type(line_number)}")
-        if not isinstance(text, str):
-             raise TypeError(f"Translation item {index} has an invalid text value. Expected a string. Got: {type(text)}")
-        if not text:
-            print (f"WARNING: Translation item {index} has empty text. Skipping.")
-            continue
-        if line_number in parsed_translations:
-            print(f"WARNING: Gemini returned duplicate translation for line {line_number}.")
-        parsed_translations[line_number] = text
+        response = TranslationResponse.model_validate_json(response_text)
+    except ValidationError as error:
+        raise ValueError(f"Gemini response did not match translation schema: {error}") from error
 
     expected_lines = set(expected_line_numbers)
-    received_lines = set(parsed_translations)
-    missing_lines = sorted(expected_lines - received_lines)
-    unexpected_lines = sorted(received_lines - expected_lines)
-    if missing_lines or unexpected_lines:
-        raise ValueError(
-            f"Gemini response line mismatch. "
-            f"Missing Lines: {missing_lines}; "
-            f"Unexpected Lines: {unexpected_lines}."
-        )
+    parsed_translations: dict[int, str] = {}
+    for item in response.translations:
+        line_number = item.line_number
+        text = item.text.strip()
+
+        if line_number not in expected_lines:
+            raise ValueError(f"Gemini returned unexpected line {line_number}.")
+
+        if line_number in parsed_translations:
+            raise ValueError(f"Gemini returned duplicate translation for line {line_number}.")
+
+        if not text:
+            raise ValueError(f"Gemini returned empty translation for line {line_number}.")
+
+        parsed_translations[line_number] = text
+
+    missing_lines = sorted(expected_lines - parsed_translations.keys())
+    if missing_lines:
+        raise ValueError(f"Gemini response missing lines: {missing_lines}.")
 
     return parsed_translations
