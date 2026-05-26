@@ -12,7 +12,7 @@ GEMINI_API_KEY = os.getenv("AI_STUDIO_API_KEY", None)
 AI_MODEL = ModelConfig.GEMINI_MODEL
 
 
-def get_client():
+def get_client() -> genai.Client:
     if GEMINI_API_KEY:
         client = genai.Client(api_key=GEMINI_API_KEY)
     elif USING_VERTEX_AI:
@@ -34,18 +34,19 @@ def print_debug(batch_prompt, model_name, generation_config):
 
 def translate_batch_with_gemini(batch_prompt, model_name=AI_MODEL, debug=False):
     """Calls the Gemini API client with a single batch prompt."""
+    prompt_text = str(batch_prompt)
     client = get_client()
     generation_config = ModelConfig.generation_config
     if debug:
-        print_debug(batch_prompt, model_name, generation_config)
+        print_debug(prompt_text, model_name, generation_config)
     try:
-        response = client.models.generate_content(model=model_name, contents=batch_prompt, config=generation_config)
-        if not response or not response.text:
+        response = client.models.generate_content(model=model_name, contents=prompt_text, config=generation_config)
+        response_text = response.text if response else None
+        if not response_text:
             message = "Empty response from the Gemini API for file"
             print(f"Error translating batch: {message}")
             return f"BATCH_TRANSLATION_ERROR: {message}"
-        else:
-            return response.text.strip()
+        return response_text.strip()
     except Exception as e:
         print(f"Error translating batch: {e}")
         return f"BATCH_TRANSLATION_ERROR: {e}"
