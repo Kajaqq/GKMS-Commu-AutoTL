@@ -42,30 +42,3 @@ NEGATIVE CONSTRAINT: Maintain honorifics only if they would sound natural in Eng
 # This template defines how each individual line from the Excel file will be formatted
 # within the {lines_to_translate} section of the main prompt template.
 LINE_FORMAT_TEMPLATE = "Line {line_number} (Speaker: {speaker}): {text}"
-
-TRANSLATION_RESPONSE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "translations": {
-            "type": "array",
-            "description": "One translated item for each requested input line.",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "line_number": {
-                        "type": "integer",
-                        "description": "The original input line number.",
-                    },
-                    "text": {
-                        "type": "string",
-                        "description": "The translated text only, without speaker names.",
-                    },
-                },
-                "required": ["line_number", "text"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    "required": ["translations"],
-    "additionalProperties": False,
-}

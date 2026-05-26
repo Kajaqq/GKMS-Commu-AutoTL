@@ -1,14 +1,16 @@
 import os
-from abc import ABC
+from dataclasses import dataclass
 
 from google.genai import types as genai_types
 from google.genai.types import HarmBlockThreshold, HarmCategory, ThinkingLevel
 
-from prompts import TRANSLATION_RESPONSE_SCHEMA, TRANSLATION_SYSTEM_INSTRUCTIONS
+from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
+from Models import TranslationResponse
 
 
-class ModelConfig(ABC):
-    GEMINI_MODEL = "gemini-3-flash-preview"
+@dataclass(frozen=True, slots=True)
+class ModelConfig:
+    GEMINI_MODEL = "gemini-3.5-flash"
 
     # Model Temperature - for Gemini 3 series, keep it at 1.0, for older models try 0.1-0.3
     TEMPERATURE = 1.0
@@ -45,7 +47,7 @@ class ModelConfig(ABC):
         temperature=TEMPERATURE,
         system_instruction=SYSTEM_INSTRUCTIONS,
         response_mime_type="application/json",
-        response_json_schema=TRANSLATION_RESPONSE_SCHEMA,
+        response_schema=TranslationResponse,
         safety_settings=safety_config,
         thinking_config=genai_types.ThinkingConfig(thinking_level=ThinkingLevel.THINKING_LEVEL_UNSPECIFIED),
     )
