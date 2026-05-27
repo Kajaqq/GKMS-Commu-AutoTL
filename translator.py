@@ -9,7 +9,7 @@ from config import ModelConfig
 load_dotenv()
 USING_VERTEX_AI = ModelConfig.is_vertex_ai()
 GEMINI_API_KEY = os.getenv("AI_STUDIO_API_KEY", None)
-AI_MODEL = ModelConfig.GEMINI_MODEL
+AI_MODEL = ModelConfig.gemini_model
 
 
 def get_client() -> genai.Client:
@@ -31,6 +31,7 @@ def print_debug(batch_prompt, model_name, generation_config):
         f"System Instruction:\n{generation_config.system_instruction}\n"
         f"Batch prompt:\n{batch_prompt}"
     )
+
 
 def translate_batch_with_gemini(batch_prompt, model_name=AI_MODEL, debug=False):
     """Calls the Gemini API client with a single batch prompt."""
