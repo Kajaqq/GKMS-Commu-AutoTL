@@ -22,6 +22,7 @@ expected_header = [
     ExcelConfig.TARGET,
 ]
 
+
 def validate_header_row(sheet) -> None:
     # Check if the header row is present and contains the expected headers
     sheet_header = [normalize_cell(cell.value) for cell in sheet[1]]
@@ -34,6 +35,7 @@ def validate_header_row(sheet) -> None:
 
 
 # --- API Calling ---
+
 
 def request_translations_from_api(
         source_lines: list[SourceLine],
@@ -61,9 +63,11 @@ def request_translations_from_api(
         api_line_numbers,
     )
 
+
 # --- XLSX Processing ---
 
-def process_workbook(source_file: Path, output_file :Path) -> bool:
+
+def process_workbook(source_file: Path, output_file: Path) -> bool:
     """Processes a single Excel workbook: reads, translates, and saves.
 
     Returns True if the file was processed and saved successfully.
@@ -92,7 +96,6 @@ def process_workbook(source_file: Path, output_file :Path) -> bool:
         pending_rows: list[tuple[int, Cell, str]] = []  # A list of rows that need translation
 
         for line_number, row in enumerate(all_rows, start=1):
-
             # Read each row
             message_type_cell, origin_speaker_cell, speaker_cell, source_cell, target_cell = row
 
@@ -103,7 +106,7 @@ def process_workbook(source_file: Path, output_file :Path) -> bool:
                 continue
 
             # Converts None to empty string and strips leading whitespace
-            
+
             source_text = safe_str(source_cell.value)
             existing_translation = safe_str(target_cell.value)
             speaker_info = safe_str(speaker_cell.value)
@@ -176,7 +179,6 @@ def process_excel_files_in_folder(
     source_folder_path=TranslatorConfig.SOURCE_FOLDER_PATH,
     output_folder_path=TranslatorConfig.OUTPUT_FOLDER_PATH,
 ):
-
     """Finds and processes Excel files (.xlsx) in a given local folder."""
     processed_count = 0
     source_folder = Path(source_folder_path)

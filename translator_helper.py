@@ -5,6 +5,7 @@ from dictionary import NAME_TERM_TRANSLATIONS
 from Models import PromptReferences, SourceLine, TranslationResponse
 from config import TranslatorConfig
 
+
 def get_prompt_refrences(source_lines: list[SourceLine]) -> PromptReferences:
     """Returns a `PromptReferences` object containing references to glossary entries and character styles."""
     character_names = {line.speaker for line in source_lines if line.speaker}
@@ -22,6 +23,7 @@ def get_prompt_refrences(source_lines: list[SourceLine]) -> PromptReferences:
             if any(character_name in name for character_name in character_names)
         ],
     )
+
 
 def parse_translation_response(response_text: str, expected_line_numbers: set[int]) -> dict[int, str]:
     # Pydantic validation pass

@@ -1,6 +1,7 @@
 from typing import Any
 from config import ReplacementConfig
 
+
 def strip_wrapping_quotes(text: str) -> str:
     """Remove surrounding quotes that models sometimes emit."""
     unwanted_quotes = ("```", '"""', "'''")
@@ -8,8 +9,9 @@ def strip_wrapping_quotes(text: str) -> str:
         return text[3:-3]
     return text
 
+
 def normalize_punctuation(text: str) -> str:
-    """Normalize punctation according to `config.py` settings. """
+    """Normalize punctation according to `config.py` settings."""
     for src, replacement in ReplacementConfig.SINGLE_DASH_REPLACEMENTS.items():
         text = text.replace(src, replacement)
     for src, replacement in ReplacementConfig.DOUBLE_DASH_REPLACEMENTS.items():
@@ -18,12 +20,15 @@ def normalize_punctuation(text: str) -> str:
         text = text.replace(src, replacement)
     return text
 
+
 def safe_str(value: Any) -> str:
     """Return a stripped string from a cell value, or empty string if None."""
     return str(value).strip() if value is not None else ""
 
+
 def normalize_cell(value: Any) -> str:
     return safe_str(value).lower()
+
 
 def clean_text(text: str, message_type: str) -> str:
     """Apply all cleanup rules."""
@@ -33,5 +38,3 @@ def clean_text(text: str, message_type: str) -> str:
     if message_type == "choice" and text.endswith("."):
         text = text[:-1]
     return text
-
-
