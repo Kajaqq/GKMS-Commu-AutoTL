@@ -55,6 +55,14 @@ class TranslatorConfig:
     EMPTY_RESPONSE_ERROR = f"{TRANSLATION_ERROR_SIGN} API returned empty response."
     MISSING_LINE_NUMBER_ERROR = f"{TRANSLATION_ERROR_SIGN} API didn't return this line number."
 
+    # Parallel file processing and Gemini retry/rate-limit controls.
+    MAX_PARALLEL_FILES = 3
+    GEMINI_TPM_LIMIT = 200_000
+    GEMINI_MAX_RETRIES = 8
+    GEMINI_RETRY_BASE_DELAY_SECONDS = 2.0
+    GEMINI_RETRY_MAX_DELAY_SECONDS = 120.0
+    GEMINI_TOKEN_ESTIMATE_CHARS_PER_TOKEN = 3
+
 
 class ExcelConfig:
     # Headers for the source and target columns

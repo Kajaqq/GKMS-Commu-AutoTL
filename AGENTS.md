@@ -7,9 +7,11 @@ This is a small Python batch translation tool. Source modules live at the reposi
 - `process_excel_files.py`: main orchestration for reading workbooks, selecting rows, translating, formatting, and saving output.
 - `translator.py`: Gemini client setup and API calls.
 - `config.py`: model, folder, fixed Excel header, wrapping, safety, and Gemini generation constants.
-- `prompts.py`: system instruction, batch prompt template, per-line format, and JSON response schema.
+- `Models.py`: dataclass prompt models and Pydantic response models used for structured Gemini output validation.
+- `prompts.py`: system instruction, batch prompt template, and per-line format.
+- `translator_helper.py`: prompt reference filtering and Pydantic-backed translation response parsing.
 - `character_styles.py`, `dictionary.py`: character voice guidance and canonical term/name translations.
-- `formatting.py`, `text_utils.py`: output cleanup, layout helpers, cell normalization, and JSON translation response parsing.
+- `formatting.py`, `text_utils.py`: output cleanup, layout helpers, cell normalization, and punctuation/quote normalization.
 - `IN/`: input `.xlsx` files. `OUT/`: generated translated `.xlsx` files.
 - `.agents/Architecture.md`: higher-level dataflow and module overview.
 
@@ -32,13 +34,14 @@ Use Python 3.14-compatible code. Follow the existing style: 4-space indentation,
 
 Keep modules focused by responsibility instead of adding unrelated logic to `process_excel_files.py`. The main workbook flow currently assumes a fixed first-row header layout: `type`, `name`, `translated name`, `text`, `translated text`. Preserve that contract unless the change explicitly updates the workbook format and architecture documentation.
 
-Gemini responses are expected as JSON matching `TRANSLATION_RESPONSE_SCHEMA`; do not reintroduce ad hoc text parsing for normal translation responses.
+Gemini responses are expected as JSON matching the `TranslationResponse` Pydantic model in `Models.py`; do not reintroduce ad hoc text parsing for normal translation responses. Use `translator_helper.parse_translation_response()` so duplicate, unexpected, missing, and empty lines stay visible as validation errors or `TRANSLATION_ERROR:` cell values.
 
 Prefer using modern Python features and libraries like:
 - `typing` for type annotations.
 - `dataclasses` for data classes.
 - `Pathlib` for file paths
 - `openpyxl` for Excel file reading and writing.
+- `pydantic` for data validation and serialization.
 
 If writing async code use:
 - `aiofiles` for async file I/O.

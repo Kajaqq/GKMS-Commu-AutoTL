@@ -1,7 +1,9 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import openpyxl
 from openpyxl.cell.cell import Cell, MergedCell
+from tqdm import tqdm
 
 # --- Import Configuration ---
 from Models import SourceLine, TranslationPrompt, PromptReferences
@@ -9,7 +11,7 @@ from config import ExcelConfig, TranslatorConfig
 from dictionary import NAME_TERM_TRANSLATIONS
 from formatting import wrap_text
 from text_utils import normalize_cell, safe_str
-from translator import translate_batch_with_gemini
+from translator import GeminiTranslationClient
 from translator_helper import parse_translation_response, get_prompt_refrences
 
 
@@ -38,9 +40,11 @@ def validate_header_row(sheet) -> None:
 
 
 def request_translations_from_api(
-        source_lines: list[SourceLine],
-        references: PromptReferences,
-        api_line_numbers: set[int]) -> dict[int, str]:
+    source_lines: list[SourceLine],
+    references: PromptReferences,
+    api_line_numbers: set[int],
+    translation_client: GeminiTranslationClient,
+) -> dict[int, str]:
     """Builds the prompt, calls the Gemini API, and parses the response.
 
     Returns parsed translations keyed by workbook line number.
@@ -53,10 +57,7 @@ def request_translations_from_api(
     )
 
     print(f"Sending {len(source_lines)} lines to Gemini...")
-    api_translations = translate_batch_with_gemini(batch_prompt)
-
-    if api_translations.startswith("BATCH_TRANSLATION_ERROR"):
-        raise RuntimeError(api_translations)
+    api_translations = translation_client.translate_batch(batch_prompt)
 
     return parse_translation_response(
         api_translations,
@@ -67,12 +68,17 @@ def request_translations_from_api(
 # --- XLSX Processing ---
 
 
-def process_workbook(source_file: Path, output_file: Path) -> bool:
+def process_workbook(
+    source_file: Path,
+    output_file: Path,
+    translation_client: GeminiTranslationClient | None = None,
+) -> bool:
     """Processes a single Excel workbook: reads, translates, and saves.
 
     Returns True if the file was processed and saved successfully.
     """
     file_name = source_file.name
+    translation_client = translation_client or GeminiTranslationClient()
     workbook = openpyxl.load_workbook(source_file)
     sheet = workbook.active
     should_save = False
@@ -146,7 +152,8 @@ def process_workbook(source_file: Path, output_file: Path) -> bool:
                 parsed_api_translations = request_translations_from_api(
                     source_lines=source_lines,
                     references=translation_references,
-                    api_line_numbers=api_line_numbers
+                    api_line_numbers=api_line_numbers,
+                    translation_client=translation_client,
                 )
 
             for line_number, target_cell, message_type in pending_rows:
@@ -178,6 +185,7 @@ def process_workbook(source_file: Path, output_file: Path) -> bool:
 def process_excel_files_in_folder(
     source_folder_path=TranslatorConfig.SOURCE_FOLDER_PATH,
     output_folder_path=TranslatorConfig.OUTPUT_FOLDER_PATH,
+    max_parallel_files=TranslatorConfig.MAX_PARALLEL_FILES,
 ):
     """Finds and processes Excel files (.xlsx) in a given local folder."""
     processed_count = 0
@@ -194,15 +202,25 @@ def process_excel_files_in_folder(
         print("Error: No Excel files found.")
         return processed_count
 
-    for source_file_path in commu_files:
+    translation_client = GeminiTranslationClient()
+
+    def process_file(source_file_path: Path) -> bool:
         source_file_name = source_file_path.name
         output_file_path = output_folder / source_file_name
         print(f"\n--- Processing file: {source_file_name} ---")
-        try:
-            if process_workbook(source_file_path, output_file_path):
-                processed_count += 1
-        except Exception as e:
-            print(f"Error processing {source_file_name}: {e}")
+        return process_workbook(source_file_path, output_file_path, translation_client)
+
+    worker_count = max(1, max_parallel_files)
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {executor.submit(process_file, source_file_path): source_file_path for source_file_path in commu_files}
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files", unit="file"):
+            source_file_path = futures[future]
+            try:
+                if future.result():
+                    processed_count += 1
+            except Exception as e:
+                print(f"Error processing {source_file_path.name}: {e}")
 
     return processed_count
 

@@ -35,12 +35,13 @@ Set the `GOOGLE_CLOUD_PROJECT` variable in the `.env` file.
 ## TODO:
   - ~~Unslopify the `process_excel_files.py`~~  Mostly done.
   - ~~Load the speaking styles dynamically, based on which characters are in a given commu.~~ Done.
-  - ~~Add a QC gate to check if the rules are followed~~ Mostly done, moved to Pydantic verification.
+  - ~~Add a QC gate to check if the rules are followed~~ Done
   - Improve the translator logic:
     - Allow translating multiple files in parallel.
-    - Show visible progress for multiple file processing.
+      - Show visible progress.
+      - Implement rate limit logic
+    - Add retry logic
     - Add better error handling.
-    - Implement rate limit avoidance logic
     - Add a better way to detect Vertex AI support.
   - Add a way to sync with Google Sheets.
   
