@@ -2,7 +2,9 @@
 
 ## Project Structure & Module Organization
 
-This is a small Python batch translation tool. Source modules live at the repository root:
+This is a small Python excel file translation tool. It reads input `.xlsx` files from `IN/`, translates their contents using Gemini API, and writes the translated output to `OUT/`.
+
+Source modules live at the repository root:
 
 - `process_excel_files.py`: main orchestration for reading workbooks, selecting rows, translating, formatting, and saving output.
 - `translator.py`: Gemini client setup and API calls.
@@ -58,12 +60,15 @@ At minimum, run:
 
 ```bash
 uv run python -m py_compile process_excel_files.py
+uv run ruff check process_excel_files.py
+uv run ty check process_excel_files.py
 ```
 
 For broader code changes, also run:
 
 ```bash
 uv run ruff check .
+uv run ty check .
 ```
 
 For formatting changes, validate against a small workbook in `IN/` and inspect the generated file in `OUT/`.
