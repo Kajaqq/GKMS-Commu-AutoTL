@@ -62,10 +62,11 @@ class TranslationResponse(BaseModel):
     translations: list[TranslatedLine] = Field(description="One translated item for each source item.")
 
     @model_validator(mode="after")
-    def validate_line_numbers(self, info: ValidationInfo[set[int]]) -> Self:
+    def validate_line_numbers(self, info: ValidationInfo[set[int] | None]) -> Self:
         expected_lines = info.context
+        if expected_lines is None:
+            return self
         seen_lines: set[int] = set()
-
         for item in self.translations:
             line_number = item.line_number
             if line_number in seen_lines:
@@ -74,5 +75,4 @@ class TranslationResponse(BaseModel):
 
             if line_number not in expected_lines:
                 raise ValueError(f"API returned unexpected line {line_number}.")
-
         return self
