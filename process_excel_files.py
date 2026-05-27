@@ -6,14 +6,13 @@ from openpyxl.cell.cell import Cell, MergedCell
 from tqdm import tqdm
 
 # --- Import Configuration ---
-from Models import SourceLine, TranslationPrompt, PromptReferences
 from config import ExcelConfig, TranslatorConfig
 from dictionary import NAME_TERM_TRANSLATIONS
 from formatting import wrap_text
+from Models import PromptReferences, SourceLine, TranslationPrompt
 from text_utils import normalize_cell, safe_str
 from translator import GeminiTranslationClient
-from translator_helper import parse_translation_response, get_prompt_refrences
-
+from translator_helper import get_prompt_refrences, parse_translation_response
 
 # --- Sheet utils ---
 expected_header = [
@@ -26,7 +25,9 @@ expected_header = [
 
 
 def validate_header_row(sheet) -> None:
-    # Check if the header row is present and contains the expected headers
+    """
+    Checks if the header row is present and contains the expected headers
+    """
     sheet_header = [normalize_cell(cell.value) for cell in sheet[1]]
     if sheet_header != expected_header:
         raise ValueError(
@@ -45,7 +46,8 @@ def request_translations_from_api(
     api_line_numbers: set[int],
     translation_client: GeminiTranslationClient,
 ) -> dict[int, str]:
-    """Builds the prompt, calls the Gemini API, and parses the response.
+    """
+    Builds the prompt, calls the Gemini API, and parses the response.
 
     Returns parsed translations keyed by workbook line number.
     """
@@ -73,7 +75,8 @@ def process_workbook(
     output_file: Path,
     translation_client: GeminiTranslationClient | None = None,
 ) -> bool:
-    """Processes a single Excel workbook: reads, translates, and saves.
+    """
+    Processes a single Excel workbook: reads, translates, and saves.
 
     Returns True if the file was processed and saved successfully.
     """
@@ -97,7 +100,7 @@ def process_workbook(
         # ---- Setup variables ----
         all_rows = sheet.iter_rows(min_row=2, min_col=1, max_col=5)  # All rows, excluding header
         source_lines: list[SourceLine] = []  # Formatted lines for translation -- {line_num, speaker, text} format
-        #TODO: Check the two below
+        # TODO: Check the two below
         dict_translations: dict[int, str] = {}  # The translation output
         pending_rows: list[tuple[int, Cell, str]] = []  # A list of rows that need translation
 
@@ -187,7 +190,9 @@ def process_excel_files_in_folder(
     output_folder_path=TranslatorConfig.OUTPUT_FOLDER_PATH,
     max_parallel_files=TranslatorConfig.MAX_PARALLEL_FILES,
 ):
-    """Finds and processes Excel files (.xlsx) in a given local folder."""
+    """
+    Finds and processes Excel files (.xlsx) in a given local folder.
+    """
     processed_count = 0
     source_folder = Path(source_folder_path)
     output_folder = Path(output_folder_path)
@@ -213,7 +218,9 @@ def process_excel_files_in_folder(
     worker_count = max(1, max_parallel_files)
 
     with ThreadPoolExecutor(max_workers=worker_count) as executor:
-        futures = {executor.submit(process_file, source_file_path): source_file_path for source_file_path in commu_files}
+        futures = {
+            executor.submit(process_file, source_file_path): source_file_path for source_file_path in commu_files
+        }
         for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files", unit="file"):
             source_file_path = futures[future]
             try:
