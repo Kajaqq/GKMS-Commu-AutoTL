@@ -133,8 +133,7 @@ class TranslationResponse(BaseModel):
         match the number of lines received
 
         Args:
-            info: Pydantic validation info containing the expected line numbers as a set
-                in `context`.
+            info: expected line numbers as a set
 
         Returns:
             The validated response instance.
@@ -143,12 +142,12 @@ class TranslationResponse(BaseModel):
             ValueError: If a returned line number is duplicated or unexpected.
         """
 
-        #
         expected_lines = info.context
+
         if expected_lines is None:
-            # Gemini API can attempt validation on its own,
-            # without access to the expected_lines set, so we skip it.
+            # Skip if the context is empty (i.e. during Gemini API validation)
             return self
+
         seen_lines: set[int] = set()
         for item in self.translations:
             line_number = item.line_number

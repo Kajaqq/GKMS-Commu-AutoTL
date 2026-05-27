@@ -1,8 +1,7 @@
 import os
 from dataclasses import dataclass
 
-from google.genai import types as genai_types
-from google.genai.types import ThinkingConfig, ThinkingLevel
+from google.genai.types import GenerateContentConfig, HttpOptions, ThinkingConfig, ThinkingLevel
 
 from Models import TranslationResponse
 from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
@@ -19,14 +18,15 @@ class ModelConfig:
     thinking_level = ThinkingConfig(thinking_level=ThinkingLevel.MEDIUM)
 
     # Used with Vertex AI, helps with rate-limiting errors and halves the costs
-    flex_mode = genai_types.HttpOptions(
+    # WARNING: Supported only with Gemini 3 series models.
+    flex_mode = HttpOptions(
         headers={
             "X-Vertex-AI-LLM-Request-Type": "shared",
             "X-Vertex-AI-LLM-Shared-Request-Type": "flex",
         }
     )
 
-    generation_config = genai_types.GenerateContentConfig(
+    generation_config = GenerateContentConfig(
         temperature=temp,
         system_instruction=TRANSLATION_SYSTEM_INSTRUCTIONS,
         response_mime_type="application/json",
@@ -54,6 +54,14 @@ class TranslatorConfig:
     TRANSLATION_ERROR_SIGN = "TRANSLATION_ERROR:"
     EMPTY_RESPONSE_ERROR = f"{TRANSLATION_ERROR_SIGN} API returned empty response."
     MISSING_LINE_NUMBER_ERROR = f"{TRANSLATION_ERROR_SIGN} API didn't return this line number."
+
+    # Parallel file processing and Gemini retry/rate-limit controls.
+    MAX_PARALLEL_FILES = 5
+    GEMINI_TPM_LIMIT = 200_000
+    GEMINI_MAX_RETRIES = 8
+    GEMINI_RETRY_BASE_DELAY_SECONDS = 2.0
+    GEMINI_RETRY_MAX_DELAY_SECONDS = 120.0
+    GEMINI_TOKEN_ESTIMATE_CHARS_PER_TOKEN = 4
 
 
 class ExcelConfig:

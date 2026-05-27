@@ -17,8 +17,9 @@ ENV/
 env.bak/
 venv.bak/
 
-# PyCharm
+# IDE
 .idea
+.zed
 
 # Excel files
 IN/

@@ -7,7 +7,9 @@ from config import TranslatorConfig
 
 
 def get_prompt_refrences(source_lines: list[SourceLine]) -> PromptReferences:
-    """Returns a `PromptReferences` object containing references to glossary entries and character styles."""
+    """
+    Returns a `PromptReferences` object containing glossary entries and character styles.
+    """
     character_names = {line.speaker for line in source_lines if line.speaker}
     source_text = "".join(line.text for line in source_lines).replace(" ", "")
 
@@ -26,7 +28,10 @@ def get_prompt_refrences(source_lines: list[SourceLine]) -> PromptReferences:
 
 
 def parse_translation_response(response_text: str, expected_line_numbers: set[int]) -> dict[int, str]:
-    # Pydantic validation pass
+    """
+    Validates the recieved translations and checks for empty lines.
+    """
+
     try:
         response = TranslationResponse.model_validate_json(
             response_text,
@@ -35,13 +40,11 @@ def parse_translation_response(response_text: str, expected_line_numbers: set[in
     except ValidationError as error:
         raise ValueError(f"API response failed validation: {error}") from error
 
-    # Adnotate missing lines in the file
     parsed_translations: dict[int, str] = {}
 
     for item in response.translations:
         line_number = item.line_number
         text = item.text
-
         if not text:
             parsed_translations[line_number] = TranslatorConfig.EMPTY_RESPONSE_ERROR
         else:
