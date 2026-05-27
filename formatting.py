@@ -75,7 +75,7 @@ def resolve_wrap_params(file_name: str, message_type: str):
     return cfg.DEFAULT_MAX_CHARS_PER_LINE, None, False
 
 
-def wrap_text(text, file_name: str, message_type: str) -> str:
+def wrap_text(text: str, file_name: str, message_type: str) -> str:
     """Clean and wrap translated text for an Excel cell."""
     formatted_text = clean_text(text, message_type)
     if not formatted_text:
