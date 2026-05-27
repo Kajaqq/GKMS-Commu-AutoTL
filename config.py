@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass
 
 from google.genai import types as genai_types
-from google.genai.types import HarmBlockThreshold, HarmCategory, ThinkingLevel
+from google.genai.types import ThinkingConfig, ThinkingLevel
 
 from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
 from Models import TranslationResponse
@@ -18,7 +18,7 @@ class ModelConfig:
     # System Instructions to use
     SYSTEM_INSTRUCTIONS = TRANSLATION_SYSTEM_INSTRUCTIONS
 
-    # Used with Vertex AI, helps with rate-limiting errors
+    # Used with Vertex AI, helps with rate-limiting errors and halves the costs
     flex_mode = genai_types.HttpOptions(
         headers={
             "X-Vertex-AI-LLM-Request-Type": "shared",
@@ -26,29 +26,11 @@ class ModelConfig:
         }
     )
 
-    # Disable blocking content that the API deems 'unsafe'
-    BLOCK_NONE = HarmBlockThreshold.BLOCK_NONE
-    safety_config = [
-        genai_types.SafetySetting(
-            category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-            threshold=BLOCK_NONE,
-        ),
-        genai_types.SafetySetting(
-            category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-            threshold=BLOCK_NONE,
-        ),
-        genai_types.SafetySetting(
-            category=HarmCategory.HARM_CATEGORY_HARASSMENT,
-            threshold=BLOCK_NONE,
-        ),
-    ]
-
     generation_config = genai_types.GenerateContentConfig(
         temperature=TEMPERATURE,
         system_instruction=SYSTEM_INSTRUCTIONS,
         response_mime_type="application/json",
         response_schema=TranslationResponse,
-        safety_settings=safety_config,
         thinking_config=genai_types.ThinkingConfig(thinking_level=ThinkingLevel.THINKING_LEVEL_UNSPECIFIED),
     )
 
@@ -57,6 +39,7 @@ class ModelConfig:
         # TODO: Find a better way to detect Vertex AI
         vertex_project = os.getenv("GOOGLE_CLOUD_PROJECT", None)
         return True if vertex_project else False
+
 
 class TranslatorConfig:
     # Language settings
@@ -82,6 +65,7 @@ class ExcelConfig:
     TRANSLATED_SPEAKER = "translated name"
     # Header for the message type column
     TYPE = "type"
+
 
 class FormattingConfig:
     # Default character width for general text wrapping
@@ -118,9 +102,4 @@ class ReplacementConfig:
     SINGLE_DASH_REPLACEMENT = "―"
     SINGLE_DASH_REPLACEMENTS = dict.fromkeys(("ー", "—", "─"), SINGLE_DASH_REPLACEMENT)
 
-    INTERPUNCTION_REPLACEMENTS = {
-                                             "。": ".",
-                                             "…": "...",
-                                             "~": "～"
-      }
-
+    INTERPUNCTION_REPLACEMENTS = {"。": ".", "…": "...", "~": "～"}
