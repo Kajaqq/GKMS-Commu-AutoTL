@@ -67,6 +67,12 @@ class TranslatorConfig:
     SOURCE_FOLDER_PATH = "IN"
     OUTPUT_FOLDER_PATH = "OUT"
 
+    # Translation error messages
+    TRANSLATION_ERROR_SIGN = 'TRANSLATION_ERROR:'
+    EMPTY_RESPONSE_ERROR = f"{TRANSLATION_ERROR_SIGN} API returned empty response."
+    MISSING_LINE_NUMBER_ERROR = f"{TRANSLATION_ERROR_SIGN} API didn't return this line number."
+
+
 class ExcelConfig:
     # Headers for the source and target columns
     SOURCE = "text"
@@ -102,3 +108,19 @@ class FormattingConfig:
     # Bubble-choice rules for non-adv_pevent_ files (approx. 34 full-width / 43 half-width)
     OTHER_MAX_CHARS = 43
     OTHER_MAX_CHOICE_BREAKS = 3
+
+
+class ReplacementConfig:
+    # Dash-like sequences/characters normalized to ―― or ―
+    DOUBLE_DASH_REPLACEMENT = "――"
+    DOUBLE_DASH_REPLACEMENTS = dict.fromkeys(("--", "ーー", "——", "──"), DOUBLE_DASH_REPLACEMENT)
+
+    SINGLE_DASH_REPLACEMENT = "―"
+    SINGLE_DASH_REPLACEMENTS = dict.fromkeys(("ー", "—", "─"), SINGLE_DASH_REPLACEMENT)
+
+    INTERPUNCTION_REPLACEMENTS = {
+                                             "。": ".",
+                                             "…": "...",
+                                             "~": "～"
+      }
+
