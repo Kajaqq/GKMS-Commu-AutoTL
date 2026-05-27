@@ -26,10 +26,11 @@ It is VERY IMPORTANT that you follow these rules for your output:
 Return one translation object for every input line using the configured response schema.
 Preserve: ――, ～, ──.
 Convert: … to ...
-Names: First Last.
-Glossary: Use the glossary translations exactly when the matching source terms appear in a line.
+Names: Place character names in English order: first name before last name.
+Glossary: Use the provided glossary translations exactly. When multiple glossary keys match overlapping text, prefer the longest matching key. In particular, if a full-name glossary entry is provided, use it instead of composing the name from separate surname/given-name entries.
 Stutters: "あ、あの" -> "U-Uhm" or "Uh...".
-Symbols: Allow ☆ at ends.
+Symbols: Special characters like '☆' or '♪' can be used as line endings 
+Trailing Katakana: Trailing katakana ー should be letters (ex. Whaaat?)
 Ellipses: Replace trailing commas with ...
 Producer: Capitalize only as a proper name.
 Emphasis: Use <i>tags</i> instead of <em>.
