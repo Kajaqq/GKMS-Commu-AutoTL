@@ -4,19 +4,19 @@ from dataclasses import dataclass
 from google.genai import types as genai_types
 from google.genai.types import ThinkingConfig, ThinkingLevel
 
-from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
 from Models import TranslationResponse
+from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
 
 
 @dataclass(frozen=True, slots=True)
 class ModelConfig:
-    GEMINI_MODEL = "gemini-3.5-flash"
+    gemini_model = "gemini-3.5-flash"
 
     # Model Temperature - for Gemini 3 series, keep it at 1.0, for older models try 0.1-0.3
-    TEMPERATURE = 1.0
+    temp = 1.0
 
-    # System Instructions to use
-    SYSTEM_INSTRUCTIONS = TRANSLATION_SYSTEM_INSTRUCTIONS
+    # Low thinking halves the quality of instruction following, so we set it to Medium
+    thinking_level = ThinkingConfig(thinking_level=ThinkingLevel.MEDIUM)
 
     # Used with Vertex AI, helps with rate-limiting errors and halves the costs
     flex_mode = genai_types.HttpOptions(
@@ -27,11 +27,11 @@ class ModelConfig:
     )
 
     generation_config = genai_types.GenerateContentConfig(
-        temperature=TEMPERATURE,
-        system_instruction=SYSTEM_INSTRUCTIONS,
+        temperature=temp,
+        system_instruction=TRANSLATION_SYSTEM_INSTRUCTIONS,
         response_mime_type="application/json",
         response_schema=TranslationResponse,
-        thinking_config=genai_types.ThinkingConfig(thinking_level=ThinkingLevel.THINKING_LEVEL_UNSPECIFIED),
+        thinking_config=thinking_level,
     )
 
     @staticmethod
@@ -51,7 +51,7 @@ class TranslatorConfig:
     OUTPUT_FOLDER_PATH = "OUT"
 
     # Translation error messages
-    TRANSLATION_ERROR_SIGN = 'TRANSLATION_ERROR:'
+    TRANSLATION_ERROR_SIGN = "TRANSLATION_ERROR:"
     EMPTY_RESPONSE_ERROR = f"{TRANSLATION_ERROR_SIGN} API returned empty response."
     MISSING_LINE_NUMBER_ERROR = f"{TRANSLATION_ERROR_SIGN} API didn't return this line number."
 

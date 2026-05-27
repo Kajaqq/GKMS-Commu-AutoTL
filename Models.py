@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 from prompts import TRANSLATION_PROMPT_TEMPLATE, LINE_FORMAT_TEMPLATE
 
+
 @dataclass(frozen=True, slots=True)
 class PromptReferences:
     """
@@ -17,6 +18,7 @@ class PromptReferences:
 
     glossary_entries: list[str]
     character_styles: list[str]
+
 
 @dataclass(frozen=True, slots=True)
 class SourceLine:
@@ -46,6 +48,7 @@ class SourceLine:
             speaker=self.speaker,
             text=self.text,
         )
+
 
 @dataclass(frozen=True, slots=True)
 class TranslationPrompt:
@@ -80,6 +83,7 @@ class TranslationPrompt:
             lines_to_translate="\n".join(str(line) for line in self.lines),
         )
 
+
 class TranslatedLine(BaseModel):
     """
     Model for a single translated line.
@@ -103,10 +107,11 @@ class TranslatedLine(BaseModel):
 
         # Strip triple quotes if they exist
         value = value.strip()
-        unwanted_quotes = ('```','"""',"'''")
+        unwanted_quotes = ("```", '"""', "'''")
         if value.startswith(unwanted_quotes) and value.endswith(unwanted_quotes):
             return value[3:-3]
         return value
+
 
 class TranslationResponse(BaseModel):
     """
