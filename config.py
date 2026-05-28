@@ -56,12 +56,12 @@ class TranslatorConfig:
     MISSING_LINE_NUMBER_ERROR = f"{TRANSLATION_ERROR_SIGN} API didn't return this line number."
 
     # Parallel file processing and Gemini retry/rate-limit controls.
-    MAX_PARALLEL_FILES = 3
+    MAX_PARALLEL_FILES = 5
     GEMINI_TPM_LIMIT = 200_000
     GEMINI_MAX_RETRIES = 8
     GEMINI_RETRY_BASE_DELAY_SECONDS = 2.0
     GEMINI_RETRY_MAX_DELAY_SECONDS = 120.0
-    GEMINI_TOKEN_ESTIMATE_CHARS_PER_TOKEN = 3
+    GEMINI_TOKEN_ESTIMATE_CHARS_PER_TOKEN = 4
 
 
 class ExcelConfig:
