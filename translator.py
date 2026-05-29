@@ -53,7 +53,12 @@ class TokenBucketRateLimiter:
         if self._capacity <= 0:
             return
 
-        requested_tokens = min(max(float(token_count), 1.0), self._capacity)
+        requested_tokens = max(float(token_count), 1.0)
+        if requested_tokens > self._capacity:
+            raise GeminiTranslationError(
+                f"Requested {int(requested_tokens)} tokens exceeds the local Gemini TPM limit of {int(self._capacity)}."
+            )
+
         with self._condition:
             while True:
                 self._refill()
@@ -63,15 +68,6 @@ class TokenBucketRateLimiter:
 
                 wait_seconds = (requested_tokens - self._tokens) / self._refill_rate
                 self._condition.wait(timeout=wait_seconds)
-
-    def update_actual(self, estimated_tokens: int, actual_tokens: int) -> None:
-        if self._capacity <= 0:
-            return
-
-        with self._condition:
-            self._refill()
-            self._tokens = min(self._capacity, self._tokens + estimated_tokens - actual_tokens)
-            self._condition.notify_all()
 
     def _refill(self) -> None:
         now = time.monotonic()
@@ -117,15 +113,12 @@ def _next_pacific_midnight(tz: ZoneInfo) -> datetime:
     return datetime.combine(tomorrow, dt_time.min, tzinfo=tz)
 def _estimate_tokens(prompt_text: str, chars_per_token: int) -> int:
     chars_per_token = max(1, chars_per_token)
-    return max(1, len(prompt_text) // chars_per_token)
+    return max(1, (len(prompt_text) + chars_per_token - 1) // chars_per_token)
 def _require_response_text(response) -> str:
     response_text = getattr(response, "text", None)
     if response_text:
         return response_text
     raise EmptyGeminiResponseError("Empty response from the Gemini API.")
-def _response_input_token_count(response) -> int:
-    usage_metadata = getattr(response, "usage_metadata", None)
-    return getattr(usage_metadata, "prompt_token_count", 0)
 def _retry_delay(attempt: int, is_rate_limit: bool) -> float:
     exponent = attempt + 1 if is_rate_limit else attempt
     delay_seconds = min(
@@ -133,41 +126,6 @@ def _retry_delay(attempt: int, is_rate_limit: bool) -> float:
         TranslatorConfig.GEMINI_RETRY_MAX_DELAY_SECONDS,
     )
     return delay_seconds * random.uniform(0.75, 1.25)
-def _get_status_code(error: Exception) -> int | None:
-    code = getattr(error, "code", None)
-    if isinstance(code, int):
-        return code
-    response = getattr(error, "response", None)
-    status_code = getattr(response, "status_code", None)
-    if isinstance(status_code, int):
-        return status_code
-    return None
-def _is_rate_limit_error(error: Exception) -> bool:
-    if _get_status_code(error) == 429:
-        return True
-    error_text = str(error).lower()
-    return any(term in error_text for term in ("rate limit", "quota", "resource_exhausted"))
-def _is_daily_quota_error(error: Exception) -> bool:
-    error_text = str(error).lower()
-    daily_quota_terms = (
-        "requests per day",
-        "request limit per day",
-        "per day per project",
-        "daily quota",
-        "quota duration: 1 day",
-        "quota duration: 1 days",
-        " rpd",
-    )
-    return any(term in error_text for term in daily_quota_terms)
-def _is_retryable_error(error: Exception) -> bool:
-    if isinstance(error, EmptyGeminiResponseError):
-        return True
-    if _is_daily_quota_error(error):
-        return False
-    status_code = _get_status_code(error)
-    if status_code in {408, 409, 429, 500, 502, 503, 504}:
-        return True
-    return isinstance(error, genai_errors.ServerError | TimeoutError | ConnectionError)
 def _retry_after_seconds(error: Exception) -> float | None:
     response = getattr(error, "response", None)
     headers = getattr(response, "headers", None)
@@ -246,62 +204,67 @@ class GeminiTranslationClient:
 
         for attempt in range(TranslatorConfig.GEMINI_MAX_RETRIES + 1):
             self._global_cooldown.wait_if_active()
-            self._acquire_rate_limits(estimated_input_tokens)
+            retry_error: Exception | None = None
+            is_rate_limit = False
 
             try:
-                response = self._get_client().models.generate_content(
+                client = self._get_client()
+                self._acquire_rate_limits(estimated_input_tokens)
+                response = client.models.generate_content(
                     model=self._model_name,
                     contents=prompt_text,
                     config=generation_config,
                 )
-                response_text = _require_response_text(response)
-
-                actual_input_tokens = _response_input_token_count(response)
-                if self._input_token_limiter and actual_input_tokens > 0:
-                    self._input_token_limiter.update_actual(estimated_input_tokens, actual_input_tokens)
-
-                return response_text.strip()
-            except Exception as error:
-                is_rate_limit = _is_rate_limit_error(error)
-                is_retryable = _is_retryable_error(error)
+                return _require_response_text(response).strip()
+            except GeminiDailyQuotaExhaustedError:
+                raise
+            except EmptyGeminiResponseError as error:
+                retry_error = error
+            except GeminiTranslationError:
+                raise
+            except genai_errors.APIError as error:
                 error_message = f"{type(error).__name__}: {error}"
-
-                if _is_daily_quota_error(error):
-                    raise GeminiDailyQuotaExhaustedError(
-                        f"Gemini daily quota is exhausted and will not recover by retrying: {error_message}"
-                    ) from error
-
-                if not is_retryable:
+                if error.code not in {429, 500, 502, 503, 504}:
                     raise GeminiTranslationError(f"Non-retryable Gemini API error: {error_message}") from error
 
-                if attempt == TranslatorConfig.GEMINI_MAX_RETRIES:
-                    raise GeminiTranslationError(
-                        f"Gemini API error after {TranslatorConfig.GEMINI_MAX_RETRIES + 1} attempts: {error_message}"
-                    ) from error
+                retry_error = error
+                is_rate_limit = error.code == 429
+            except Exception as error:
+                error_message = f"{type(error).__name__}: {error}"
+                raise GeminiTranslationError(f"Non-retryable Gemini error: {error_message}") from error
 
-                delay_seconds = _retry_delay(attempt, is_rate_limit)
-                retry_after_seconds = _retry_after_seconds(error)
-                if retry_after_seconds is not None:
-                    delay_seconds = max(delay_seconds, retry_after_seconds)
-                if is_rate_limit:
-                    self._global_cooldown.trigger(delay_seconds)
+            if retry_error is None:
+                raise GeminiTranslationError("Gemini retry loop ended unexpectedly.")
 
-                retry_type = "rate limit" if is_rate_limit else "retryable"
-                print(
-                    f"Gemini {retry_type} error on attempt {attempt + 1}: "
-                    f"{error_message}. Retrying in {delay_seconds:.1f}s..."
-                )
-                time.sleep(delay_seconds)
+            error_message = f"{type(retry_error).__name__}: {retry_error}"
+            if attempt == TranslatorConfig.GEMINI_MAX_RETRIES:
+                raise GeminiTranslationError(
+                    f"Gemini API error after {TranslatorConfig.GEMINI_MAX_RETRIES + 1} attempts: {error_message}"
+                ) from retry_error
+
+            delay_seconds = _retry_delay(attempt, is_rate_limit)
+            retry_after_seconds = _retry_after_seconds(retry_error)
+            if retry_after_seconds is not None:
+                delay_seconds = max(delay_seconds, retry_after_seconds)
+            if is_rate_limit:
+                self._global_cooldown.trigger(delay_seconds)
+
+            retry_type = "rate limit" if is_rate_limit else "retryable"
+            print(
+                f"Gemini {retry_type} error on attempt {attempt + 1}: "
+                f"{error_message}. Retrying in {delay_seconds:.1f}s..."
+            )
+            time.sleep(delay_seconds)
 
         raise GeminiTranslationError("Gemini retry loop ended unexpectedly.")
 
     def _acquire_rate_limits(self, estimated_input_tokens: int) -> None:
+        if self._daily_request_limiter:
+            self._daily_request_limiter.acquire()
         if self._request_limiter:
             self._request_limiter.acquire(1)
         if self._input_token_limiter:
             self._input_token_limiter.acquire(estimated_input_tokens)
-        if self._daily_request_limiter:
-            self._daily_request_limiter.acquire()
 
     def _get_client(self) -> Client:
         if self._client is not None:
