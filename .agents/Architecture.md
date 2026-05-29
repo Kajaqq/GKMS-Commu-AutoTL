@@ -47,38 +47,40 @@ IN/*.xlsx
             -> collect original/translated speaker names for style filtering
             -> source text non-empty and target empty or starts TRANSLATION_ERROR?
                  no  -> leave row unchanged
-                 yes -> exact dictionary match?
-                         yes -> NAME_TERM_TRANSLATIONS
+                 yes -> REPLACE_SINGLE_TERM enabled and exact dictionary match?
+                         yes -> NAME_TERM_TRANSLATIONS, do not send that line to Gemini
                          no  -> LINE_FORMAT_TEMPLATE batch lines
-                              -> collect source text for glossary filtering
-       -> get_prompt_refrences()
-            -> include matching glossary entries and character speaking styles
-       -> TranslationPrompt
-            -> TRANSLATION_PROMPT_TEMPLATE
-            -> filtered CHARACTER_SPEAKING_STYLES
-            -> filtered glossary
-       -> GeminiTranslationClient.translate_batch()
-            -> shared global cooldown and TPM limiter
-            -> GenerateContentConfig with Pydantic JSON response schema
-            -> retry retryable Gemini failures with capped jittered backoff
-            -> Gemini API response text
-       -> parse_translation_response()
-            -> JSON object with translations[]
-            -> validate expected line numbers
+                               -> collect source text for glossary filtering
+       -> any API-bound lines?
+            no  -> skip prompt construction and Gemini call
+            yes -> get_prompt_refrences()
+                   -> include matching glossary entries and character speaking styles
+                -> TranslationPrompt
+                   -> TRANSLATION_PROMPT_TEMPLATE
+                   -> filtered CHARACTER_SPEAKING_STYLES
+                   -> filtered glossary
+                -> GeminiTranslationClient.translate_batch()
+                   -> shared global cooldown and TPM limiter
+                   -> GenerateContentConfig with Pydantic JSON response schema
+                   -> retry retryable Gemini failures with capped jittered backoff
+                   -> Gemini API response text
+                -> parse_translation_response()
+                   -> JSON object with translations[]
+                   -> validate expected line numbers
        -> choose translated text per pending row
        -> wrap_text()
             -> clean_text()
             -> resolve_wrap_params()
             -> textwrap/per-line wrapping
        -> write target cells
-       -> save OUT/<same filename>.xlsx when completed and changed,
-          or when no output file exists
+       -> save OUT/<same filename>.xlsx when translations were attempted,
+          or when no translations were needed and no output file exists
 ```
 
 ## Workbook Processing Flow
 
 1. `process_excel_files_in_folder()` resolves the source and output folders from `TranslatorConfig`.
-2. It raises `ValueError` if `IN/` does not exist, creates `OUT/` if needed, scans `IN/` for `*.xlsx`, and submits the sorted files to a bounded `ThreadPoolExecutor`.
+2. It raises `NotADirectoryError` if `IN/` does not exist, creates `OUT/` if needed, scans `IN/` for `*.xlsx`, and raises `FileNotFoundError` when there are no matching workbooks. Matching files are submitted to a bounded `ThreadPoolExecutor`.
 3. A single shared `GeminiTranslationClient` is passed into all workbook workers so rate limiting and cooldown state apply across the whole run.
 4. `tqdm` reports progress as file futures complete.
 5. `process_workbook()` loads each workbook with `openpyxl` and uses only the active sheet.
@@ -89,12 +91,12 @@ IN/*.xlsx
 10. A row is considered for translation when:
 11. source text is non-empty, and
 12. target text is empty or starts with `TRANSLATION_ERROR`.
-13. Exact source text matches in `NAME_TERM_TRANSLATIONS` are translated locally.
+13. If `TranslatorConfig.REPLACE_SINGLE_TERM` is enabled, exact normalized source text matches in `NAME_TERM_TRANSLATIONS` are translated locally and omitted from the Gemini batch. The toggle is disabled by default.
 14. Other rows are batched into prompt lines with their line number, speaker, and source text.
 15. Before the API call, dictionary entries are filtered to only glossary terms appearing in API-bound source text, and character styles are filtered to characters whose names or aliases match workbook speaker names.
-16. API translations and dictionary translations are merged back into the pending row list.
-17. The chosen translation is cleaned/wrapped, assigned to the `translated text` cell, and marked as a change.
-18. The workbook is saved to `OUT/` only after processing completes and either cells changed or the matching output file did not already exist.
+16. API translations and, when `REPLACE_SINGLE_TERM` is enabled, local dictionary translations are merged back into the pending row list.
+17. The chosen translation is cleaned/wrapped and assigned to the `translated text` cell.
+18. If any rows were pending, the workbook is saved to `OUT/` after processing completes. If no rows were pending, the workbook is saved only when the matching output file does not already exist.
 
 ## Translation Request Flow
 
@@ -126,16 +128,16 @@ Response parsing:
 
 - Successful responses are expected as JSON matching the `TranslationResponse` Pydantic model.
 - The response shape is `{ "translations": [{ "line_number": 1, "text": "..." }] }`.
-- `parse_translation_response()` parses JSON, builds `{line_number: translated_text}`, rejects duplicate or unexpected line numbers, and annotates missing or empty items with `TRANSLATION_ERROR:` cell values.
+- `parse_translation_response()` parses JSON with `TranslationResponse.model_validate_json(..., context=expected_line_numbers)`, builds `{line_number: translated_text}`, rejects duplicate or unexpected line numbers, and annotates missing or empty items with `TRANSLATION_ERROR:` cell values.
 - If Gemini raises, returns an empty response after all retries, returns invalid JSON, or returns unexpected line numbers, the workbook worker raises. The file-level future logs the error and the batch continues with the next completed workbook.
 
 ## Translation Selection Rules
 
 For every pending workbook row, the script selects output in this order:
 
-1. Use `NAME_TERM_TRANSLATIONS` if the source text was an exact dictionary match.
+1. Use `NAME_TERM_TRANSLATIONS` for a row that was matched locally while `REPLACE_SINGLE_TERM` was enabled.
 2. Use the parsed Gemini translation for that line number.
-3. Write `TRANSLATION_ERROR: Line N missing from parsed API translations.` when no parsed API translation exists for a non-dictionary pending row.
+3. Write `TRANSLATION_ERROR: Something happened. You shouldn't be seeing this.` only if a pending row has neither a parsed API translation nor an enabled local dictionary translation.
 
 Missing or empty line-level translations remain visible in the workbook. Whole-request failures abort that workbook and are logged by the file-level executor so other files can continue.
 
@@ -167,11 +169,12 @@ Important formatting rules:
 | Required headers         | `ExcelConfig`                                                                                         | `type`, `name`, `translated name`, `text`, `translated text` in that exact order                                  |
 | Gemini model             | `ModelConfig.gemini_model`                                                                            | `gemini-3.5-flash`                                                                                                |
 | Gemini response format   | `ModelConfig.generation_config`                                                                       | `application/json` using the `TranslationResponse` Pydantic schema                                                |
-| Parallel file workers    | `TranslatorConfig.MAX_PARALLEL_FILES`                                                                 | `3`                                                                                                               |
-| Gemini token budget      | `TranslatorConfig.GEMINI_TPM_LIMIT`                                                                   | `200_000` estimated tokens per minute                                                                             |
+| Parallel file workers    | `TranslatorConfig.MAX_PARALLEL_FILES`                                                                 | `5`                                                                                                               |
+| Gemini token budget      | `TranslatorConfig.GEMINI_TPM_LIMIT`                                                                   | `250_000` estimated tokens per minute                                                                             |
 | Gemini retry attempts    | `TranslatorConfig.GEMINI_MAX_RETRIES`                                                                 | `8` retries after the first attempt                                                                               |
 | Gemini retry delay       | `TranslatorConfig.GEMINI_RETRY_BASE_DELAY_SECONDS`, `TranslatorConfig.GEMINI_RETRY_MAX_DELAY_SECONDS` | `2.0` second base, capped at `120.0` seconds, with jitter                                                         |
-| Gemini token estimate    | `TranslatorConfig.GEMINI_TOKEN_ESTIMATE_CHARS_PER_TOKEN`                                              | `3` characters per estimated token                                                                                |
+| Gemini token estimate    | `TranslatorConfig.GEMINI_TOKEN_ESTIMATE_CHARS_PER_TOKEN`                                              | `4` characters per estimated token                                                                                |
+| Local term replacement   | `TranslatorConfig.REPLACE_SINGLE_TERM`                                                                | `False`                                                                                                           |
 | API Studio credential    | `.env` / `translator.py`                                                                              | `AI_STUDIO_API_KEY`                                                                                               |
 | Vertex credential switch | `.env` / `translator.py`                                                                              | `GOOGLE_CLOUD_PROJECT`                                                                                            |
 | Runtime dependencies     | `pyproject.toml`                                                                                      | `google-genai>=2.5.0`, `openpyxl>=3.1.5`, `pydantic>=2.13.4`, `protobuf>=7.34.1`, `python-dotenv`, `tqdm>=4.67.3` |
@@ -181,13 +184,13 @@ Important formatting rules:
 
 | Situation                                                                   | Behavior                                                                                                     | Why                                                                                                                  |
 |-----------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
-| `IN/` does not exist                                                        | Raises `ValueError`.                                                                                         | Avoids creating or guessing source data.                                                                             |
-| No `.xlsx` files in `IN/`                                                   | Prints `Error: No Excel files found.` and returns zero.                                                      | Treats empty input as a no-op.                                                                                       |
-| Workbook has no active sheet                                                | Prints an error and skips the workbook.                                                                      | There is no sheet to read or write.                                                                                  |
-| Header row does not exactly match expected fixed layout                     | Raises `ValueError`, which the per-file loop logs before continuing with the next workbook.                  | The pipeline depends on fixed column positions.                                                                      |
+| `IN/` does not exist                                                        | Raises `NotADirectoryError`.                                                                                 | Avoids creating or guessing source data.                                                                             |
+| No `.xlsx` files in `IN/`                                                   | Raises `FileNotFoundError`.                                                                                  | Treats empty input as a hard setup error.                                                                            |
+| Workbook has no active sheet                                                | Raises `RuntimeError`, which the per-file loop logs before continuing with the next workbook.                | There is no sheet to read or write.                                                                                  |
+| Header row does not exactly match expected fixed layout                     | Raises `InvalidHeaderException`, which the per-file loop logs before continuing with the next workbook.      | The pipeline depends on fixed column positions.                                                                      |
 | Target cell is a `MergedCell`                                               | Prints a warning and skips that row.                                                                         | Merged cells cannot be written like normal cells.                                                                    |
 | Row already has a translation that does not start with `TRANSLATION_ERROR`  | Leaves the row unchanged.                                                                                    | Avoids overwriting completed translations.                                                                           |
-| No translations needed and output file already exists                       | Leaves the existing output file unchanged.                                                                   | Avoids refreshing files without content changes.                                                                     |
+| No translations needed and output file already exists                       | Leaves the existing output file unchanged and returns `False` for that workbook.                             | Avoids refreshing files without content changes.                                                                     |
 | No translations needed and output file does not exist                       | Saves a workbook copy to `OUT/`.                                                                             | Ensures processed input can still produce an output artifact.                                                        |
 | Gemini call hits a retryable failure                                        | Retries with capped jittered backoff; rate-limit failures also activate shared cooldown.                     | Reduces failed batches while respecting project-level quotas during parallel processing.                             |
 | Gemini call fails after all retries or returns empty text after all retries | Raises from the workbook worker; the file-level loop logs the error and continues with other files.          | Avoids saving partial workbook output while preserving batch progress.                                               |
@@ -200,7 +203,7 @@ Important formatting rules:
 - Excel files are the system boundary. The project does not maintain a database or intermediate artifact format because the source and output contract is already `.xlsx`.
 - Translation is batched per workbook to reduce API overhead and give Gemini more context across adjacent lines.
 - Workbooks are processed in parallel because each file has isolated workbook/output state, while API throttling is centralized in the shared translation client.
-- Exact dictionary translations run before the API to preserve canonical names/terms and avoid spending tokens on deterministic substitutions.
+- When `REPLACE_SINGLE_TERM` is enabled, exact dictionary translations run before the API to preserve canonical names/terms and avoid spending tokens on deterministic substitutions.
 - Glossary filtering keeps prompt context relevant by sending only dictionary entries that appear in the current API-bound source text.
 - Speaker-style filtering keeps persona context focused by sending only character styles that match speakers seen in the current workbook.
 - JSON schema output replaces regex parsing so response validation can check line numbers and translation fields structurally.
@@ -221,7 +224,7 @@ Important formatting rules:
 
 ## Extension Points
 
-- Add more canonical names or terms in `dictionary.py`; exact source-text matches become local translations, while partial matches can appear as glossary guidance.
+- Add more canonical names or terms in `dictionary.py`; exact source-text matches become local translations when `REPLACE_SINGLE_TERM` is enabled, while partial matches can appear as glossary guidance.
 - Add or adjust character voice guidance and aliases in `character_styles.py`.
 - Tune prompt behavior or structured output shape in `prompts.py`.
 - Change model, language, folder, header, or wrapping constants in `config.py`.

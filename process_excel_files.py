@@ -9,8 +9,8 @@ from tqdm import tqdm
 from config import ExcelConfig, TranslatorConfig
 from dictionary import NAME_TERM_TRANSLATIONS
 from formatting import wrap_text
-from Models import PromptReferences, SourceLine, TranslationPrompt
-from text_utils import normalize_cell, safe_str
+from Models import PromptReferences, SourceLine, TranslationPrompt, InvalidHeaderException
+from text_utils import normalize_cell, safe_str, strip_whitespace
 from translator import GeminiTranslationClient
 from translator_helper import get_prompt_refrences, parse_translation_response
 
@@ -22,28 +22,26 @@ expected_header = [
     ExcelConfig.SOURCE,
     ExcelConfig.TARGET,
 ]
+filled_rows:int = len(expected_header)
 
-
-def validate_header_row(sheet) -> None:
+def validate_header_row(sheet):
     """
     Checks if the header row is present and contains the expected headers
     """
     sheet_header = [normalize_cell(cell.value) for cell in sheet[1]]
     if sheet_header != expected_header:
-        raise ValueError(
-            f"Header row has incorrect headers: "
-            f"Expected headers: {', '.join(expected_header)}."
-            f"File headers: {', '.join(sheet_header)}"
+        raise InvalidHeaderException(
+                f"Header row has incorrect headers: "
+                f"Expected headers: {', '.join(expected_header)}."
+                f"File headers: {', '.join(sheet_header)}"
         )
 
 
 # --- API Calling ---
 
-
 def request_translations_from_api(
     source_lines: list[SourceLine],
     references: PromptReferences,
-    api_line_numbers: set[int],
     translation_client: GeminiTranslationClient,
 ) -> dict[int, str]:
     """
@@ -57,138 +55,144 @@ def request_translations_from_api(
         source_lang=TranslatorConfig.SOURCE_LANGUAGE,
         target_lang=TranslatorConfig.TARGET_LANGUAGE,
     )
-
+    api_lines_numbers = {line.line_number for line in source_lines}
     print(f"Sending {len(source_lines)} lines to Gemini...")
     api_translations = translation_client.translate_batch(batch_prompt)
 
     return parse_translation_response(
         api_translations,
-        api_line_numbers,
+        api_lines_numbers,
     )
 
 
-# --- XLSX Processing ---
+# --- Main Processing Logic  ---
 
+def load_workbook(source_file: Path):
+    workbook = openpyxl.load_workbook(source_file)
+    sheet = workbook.active
+    if sheet: 
+        return workbook, sheet
+    else:
+        raise RuntimeError("Workbook is empty. Skipping.")
 
 def process_workbook(
     source_file: Path,
     output_file: Path,
     translation_client: GeminiTranslationClient | None = None,
+    replace_single_term: bool = False
 ) -> bool:
     """
     Processes a single Excel workbook: reads, translates, and saves.
 
     Returns True if the file was processed and saved successfully.
+    Return False if nothing was done.
     """
     file_name = source_file.name
-    translation_client = translation_client or GeminiTranslationClient()
-    workbook = openpyxl.load_workbook(source_file)
-    sheet = workbook.active
-    should_save = False
-    completed = False
-    changed = False
-    has_translation_errors = False
-    try:
-        if sheet is None:
-            print(f"WARNING: Input file {file_name} is empty. Skipping.")
-            return False
+    workbook, sheet = load_workbook(source_file)
+    validate_header_row(sheet)  # If this fails the rest doesn't continue
+    data_rows = sheet.iter_rows(min_row=2, min_col=1, max_col=filled_rows)  # All rows, excluding header
 
-        validate_header_row(sheet)
-        # TODO: First `should_save`
-        should_save = True
+    # Initialize variables
+    source_lines: list[SourceLine] = []  # Formatted lines for translation -- {line_num, speaker, text} format
+    dict_translations: dict[int, str] = {}  # For `replace_from_dict` usage
+    row_metadata: list[tuple[int, Cell, str]] = []  # Metadata of rows that need translation
+    
+    # Read and rows and prepare the data
+    for line_number, row in enumerate(data_rows, start=1):
+        # Read each row
+        message_type_cell, origin_speaker_cell, speaker_cell, source_cell, target_cell = row
 
-        # ---- Setup variables ----
-        all_rows = sheet.iter_rows(min_row=2, min_col=1, max_col=5)  # All rows, excluding header
-        source_lines: list[SourceLine] = []  # Formatted lines for translation -- {line_num, speaker, text} format
-        # TODO: Check the two below
-        dict_translations: dict[int, str] = {}  # The translation output
-        pending_rows: list[tuple[int, Cell, str]] = []  # A list of rows that need translation
+        # Check if the translation cell is not a MergedCell
+        if isinstance(target_cell, MergedCell):
+            print(f"WARNING: A merged translation cell was found in row {line_number+1}")
+            print("These can not be wrapped nor written properly, skipping row.")
+            continue
 
-        for line_number, row in enumerate(all_rows, start=1):
-            # Read each row
-            message_type_cell, origin_speaker_cell, speaker_cell, source_cell, target_cell = row
+        # Converts None to empty string and strips leading whitespace
+        source_text = safe_str(source_cell.value)
+        translation_cell = safe_str(target_cell.value)
+        speaker_info = safe_str(speaker_cell.value)
+        origin_speaker_info = safe_str(origin_speaker_cell.value)
+        message_type = safe_str(message_type_cell.value).lower()
+        speaker = speaker_info or origin_speaker_info
+    
+        # Check if translation is required
+        # Assume that if there's source_text and existing translation is empty or starts with "TRANSLATION_ERROR", it needs translation
+        needs_translation = source_text != "" and (
+                translation_cell == ""  or translation_cell.startswith("TRANSLATION_ERROR")
+        )
+        if not needs_translation:
+            continue
 
-            # Check if the translation cell is not a MergedCell, these can cause issues later on, so we skip them
-            if isinstance(target_cell, MergedCell):
-                print(f"WARNING: A merged translation cell was found in line {line_number}.")
-                print("These can not be wrapped nor written properly, skipping line.")
-                continue
-
-            # Converts None to empty string and strips leading whitespace
-
-            source_text = safe_str(source_cell.value)
-            existing_translation = safe_str(target_cell.value)
-            speaker_info = safe_str(speaker_cell.value)
-            origin_speaker_info = safe_str(origin_speaker_cell.value)
-            message_type = safe_str(message_type_cell.value).lower()
-            speaker = speaker_info or origin_speaker_info
-
-            # Check if translation is required
-            # Assume that if there's source_text and existing translation is empty or starts with "TRANSLATION_ERROR", it needs translation
-            needs_translation = source_text != "" and (
-                existing_translation == "" or existing_translation.startswith("TRANSLATION_ERROR")
-            )
-            if not needs_translation:
-                continue
-
-            # If the line matches a name term exactly, don't send it to API, instead replace from dict.
-            normalized_source_text = source_text.replace(" ", "")
+        if replace_single_term:
+            normalized_source_text = strip_whitespace(source_text)
             if normalized_source_text in NAME_TERM_TRANSLATIONS:
                 dict_translations[line_number] = NAME_TERM_TRANSLATIONS[normalized_source_text]
-            else:
-                source_line = SourceLine(line_number=line_number, speaker=speaker, text=source_text)
-                source_lines.append(source_line)
+                row_metadata.append((line_number, target_cell, message_type))
+                continue
 
-            # Save a list of rows that need translation
-            pending_rows.append((line_number, target_cell, message_type))
-
-        if not pending_rows and output_file.exists():
-            print(f"No translations needed; leaving existing output unchanged: {file_name}")
-
-        # Call the API and write the translated rows back
-        if pending_rows:
-            parsed_api_translations: dict[int, str] = {}
-            api_line_numbers = {line.line_number for line in source_lines}
-
-            if source_lines:
-                translation_references = get_prompt_refrences(source_lines)
-                parsed_api_translations = request_translations_from_api(
-                    source_lines=source_lines,
-                    references=translation_references,
-                    api_line_numbers=api_line_numbers,
-                    translation_client=translation_client,
-                )
-
-            for line_number, target_cell, message_type in pending_rows:
-                if line_number in dict_translations:
-                    translated_text = dict_translations[line_number]
-                elif line_number in parsed_api_translations:
-                    translated_text = parsed_api_translations[line_number]
-                else:
-                    translated_text = f"TRANSLATION_ERROR: Line {line_number} missing from parsed API translations."
-
-                if translated_text.startswith("TRANSLATION_ERROR"):
-                    has_translation_errors = True
-
-                wrapped = wrap_text(translated_text, file_name, message_type)
-                target_cell.value = wrapped
-                changed = True
-        completed = True
-    # TODO: Verify this logic, should_save, completed and changed?
-    finally:
-        if should_save and completed and (changed or not output_file.exists()):
+        source_lines.append(SourceLine(line_number=line_number, speaker=speaker, text=source_text))
+    
+        # Save metadata of rows that will be translated
+        row_metadata.append((line_number, target_cell, message_type))
+    
+    if not row_metadata:
+        print(f"No translations needed for {file_name}")
+        if output_file.exists():
+            print("\nExisting file was not modified.")
+        else:
+            print(f"Saved output to: {output_file}")
             workbook.save(output_file)
-            print(f"Saved: {file_name}")
-    if has_translation_errors:
-        print(f"WARNING: {file_name} is incomplete and may require a rerun due to translation errors.")
+            return True
+        return False
+    
+    # Call the API and write the translated rows back
+    translation_error_count = 0
+    translation_client = translation_client or GeminiTranslationClient()
+
+    if source_lines:
+        translation_references = get_prompt_refrences(source_lines)
+        parsed_api_translations = request_translations_from_api(
+            source_lines=source_lines,
+            references=translation_references,
+            translation_client=translation_client,
+        )
+    else:
+        parsed_api_translations = {}
+        
+    for line_number, target_cell, message_type in row_metadata:
+        if line_number in parsed_api_translations:
+            translated_text = parsed_api_translations[line_number]
+        elif replace_single_term and line_number in dict_translations:
+            translated_text = dict_translations[line_number]
+        else:
+            translated_text = "TRANSLATION_ERROR: Something happened. You shouldn't be seeing this."
+   
+        if translated_text.startswith("TRANSLATION_ERROR"):
+            translation_error_count += 1
+   
+        wrapped = wrap_text(translated_text, file_name, message_type)
+        target_cell.value = wrapped
+        
+    workbook.save(output_file)
+    if translation_error_count>0:
+        # TODO: Expand this to allow choosing from:
+        #  a) erroring out(strict mode)
+        #  b) retrying with the full context,
+        #  c) retrying with only the failed lines
+        #  d) Doing nothing (Warning only, current behaviour)
+        print(f"WARNING: {file_name} may require a rerun due to {translation_error_count} translation errors.")
+    print(f"Saved output to: {output_file}")
     return True
 
 
-# --- Main Processing Logic ---
+# --- Orchestrator ---
+
 def process_excel_files_in_folder(
     source_folder_path=TranslatorConfig.SOURCE_FOLDER_PATH,
     output_folder_path=TranslatorConfig.OUTPUT_FOLDER_PATH,
     max_parallel_files=TranslatorConfig.MAX_PARALLEL_FILES,
+    replace_single_term=TranslatorConfig.REPLACE_SINGLE_TERM,
 ):
     """
     Finds and processes Excel files (.xlsx) in a given local folder.
@@ -198,14 +202,13 @@ def process_excel_files_in_folder(
     output_folder = Path(output_folder_path)
 
     if not source_folder.is_dir():
-        raise ValueError(f"Error: Source folder not found at {source_folder}")
+        raise NotADirectoryError(f"Source folder not found at {source_folder}")
 
     output_folder.mkdir(parents=True, exist_ok=True)
 
     commu_files = sorted(source_folder.glob("*.xlsx"))
     if not commu_files:
-        print("Error: No Excel files found.")
-        return processed_count
+        raise FileNotFoundError(f"No Excel files found in {source_folder}.")
 
     translation_client = GeminiTranslationClient()
 
@@ -213,7 +216,7 @@ def process_excel_files_in_folder(
         source_file_name = source_file_path.name
         output_file_path = output_folder / source_file_name
         print(f"\n--- Processing file: {source_file_name} ---")
-        return process_workbook(source_file_path, output_file_path, translation_client)
+        return process_workbook(source_file_path, output_file_path, translation_client, replace_single_term)
 
     worker_count = max(1, max_parallel_files)
 
