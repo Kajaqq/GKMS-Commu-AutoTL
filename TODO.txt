@@ -1,4 +1,0 @@
-1. Check the process_excel_files.py changes
-2. Check new translator.py implementation
-3. Check formatting.py
-4. Add Google Sheets helper.
