@@ -50,6 +50,11 @@ class TranslatorConfig:
     SOURCE_FOLDER_PATH = "IN"
     OUTPUT_FOLDER_PATH = "OUT"
 
+    # Set to true to translate based on dict if the line only contains a single term.
+    # If True, if source_text = key in `NAME_TERM_TRANSLATIONS' translated_text = value
+    # This skips sending the line to the API, and can cause loss of context/quality for weaker models.
+    REPLACE_SINGLE_TERM = False
+    
     # Translation error messages
     TRANSLATION_ERROR_SIGN = "TRANSLATION_ERROR:"
     EMPTY_RESPONSE_ERROR = f"{TRANSLATION_ERROR_SIGN} API returned empty response."
@@ -57,7 +62,8 @@ class TranslatorConfig:
 
     # Parallel file processing and Gemini retry/rate-limit controls.
     MAX_PARALLEL_FILES = 5
-    GEMINI_TPM_LIMIT = 200_000
+    # This Limit is based on the Google AI Studio limits as the Vertex AI one is 'dynamic'
+    GEMINI_TPM_LIMIT = 250_000
     GEMINI_MAX_RETRIES = 8
     GEMINI_RETRY_BASE_DELAY_SECONDS = 2.0
     GEMINI_RETRY_MAX_DELAY_SECONDS = 120.0

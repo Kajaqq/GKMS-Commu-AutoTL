@@ -5,6 +5,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 from prompts import TRANSLATION_PROMPT_TEMPLATE, LINE_FORMAT_TEMPLATE
 
+class InvalidHeaderException(Exception):
+    """
+    Thrown when an invalid header is encountered.
+    """
 
 @dataclass(frozen=True, slots=True)
 class PromptReferences:

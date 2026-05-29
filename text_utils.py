@@ -1,4 +1,3 @@
-from typing import Any
 from config import ReplacementConfig
 
 
@@ -25,15 +24,19 @@ def normalize_punctuation(text: str) -> str:
     return text
 
 
-def safe_str(value: Any) -> str:
+def safe_str(value) -> str:
     """
     Return a stripped string from a cell value, or empty string if None.
     """
     return str(value).strip() if value is not None else ""
 
 
-def normalize_cell(value: Any) -> str:
+def normalize_cell(value) -> str:
     return safe_str(value).lower()
+
+
+def strip_whitespace(text: str) -> str:
+    return "".join(text.split())
 
 
 def clean_text(text: str, message_type: str) -> str:
