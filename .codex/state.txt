@@ -1,5 +1,10 @@
 Based on the morning state.
 
+Edit a9fbb41416d2f5bb41b042b350a65a1a2dd87ae3
+Clanker simplify at a0e34f0815aa69d247e966230fe3cb0472cc9cbc
+
+Then ---> all below is AI
+
 Code Review :
 do a git diff of translator.py compared to the dev branch. Pretend you're a senior dev doing a code review and you
 HATE this implementation. What would you criticize? What edge cases am I missing? Focus on the translator.py file
