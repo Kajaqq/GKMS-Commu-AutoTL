@@ -53,11 +53,8 @@ class TokenBucketRateLimiter:
         if self._capacity <= 0:
             return
 
+        self.validate_capacity(token_count)
         requested_tokens = max(float(token_count), 1.0)
-        if requested_tokens > self._capacity:
-            raise GeminiTranslationError(
-                f"Requested {int(requested_tokens)} tokens exceeds the local Gemini TPM limit of {int(self._capacity)}."
-            )
 
         with self._condition:
             while True:
@@ -68,6 +65,13 @@ class TokenBucketRateLimiter:
 
                 wait_seconds = (requested_tokens - self._tokens) / self._refill_rate
                 self._condition.wait(timeout=wait_seconds)
+
+    def validate_capacity(self, token_count: int) -> None:
+        requested_tokens = max(float(token_count), 1.0)
+        if requested_tokens > self._capacity:
+            raise GeminiTranslationError(
+                f"Requested {int(requested_tokens)} tokens exceeds the local Gemini TPM limit of {int(self._capacity)}."
+            )
 
     def _refill(self) -> None:
         now = time.monotonic()
@@ -116,7 +120,7 @@ def _estimate_tokens(prompt_text: str, chars_per_token: int) -> int:
     return max(1, (len(prompt_text) + chars_per_token - 1) // chars_per_token)
 def _require_response_text(response) -> str:
     response_text = getattr(response, "text", None)
-    if response_text:
+    if response_text and (response_text := response_text.strip()):
         return response_text
     raise EmptyGeminiResponseError("Empty response from the Gemini API.")
 def _retry_delay(attempt: int, is_rate_limit: bool) -> float:
@@ -215,7 +219,7 @@ class GeminiTranslationClient:
                     contents=prompt_text,
                     config=generation_config,
                 )
-                return _require_response_text(response).strip()
+                return _require_response_text(response)
             except GeminiDailyQuotaExhaustedError:
                 raise
             except EmptyGeminiResponseError as error:
@@ -259,6 +263,8 @@ class GeminiTranslationClient:
         raise GeminiTranslationError("Gemini retry loop ended unexpectedly.")
 
     def _acquire_rate_limits(self, estimated_input_tokens: int) -> None:
+        if self._input_token_limiter:
+            self._input_token_limiter.validate_capacity(estimated_input_tokens)
         if self._daily_request_limiter:
             self._daily_request_limiter.acquire()
         if self._request_limiter:
