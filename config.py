@@ -62,8 +62,11 @@ class TranslatorConfig:
 
     # Parallel file processing and Gemini retry/rate-limit controls.
     MAX_PARALLEL_FILES = 5
-    # This Limit is based on the Google AI Studio limits as the Vertex AI one is 'dynamic'
+    # These defaults are based on conservative Google AI Studio limits. Set to 0 to disable a local limiter.
+    # Vertex AI limits can be dynamic, but these caps still prevent local worker bursts.
+    GEMINI_RPM_LIMIT = 10
     GEMINI_TPM_LIMIT = 250_000
+    GEMINI_RPD_LIMIT = 250
     GEMINI_MAX_RETRIES = 8
     GEMINI_RETRY_BASE_DELAY_SECONDS = 2.0
     GEMINI_RETRY_MAX_DELAY_SECONDS = 120.0
