@@ -2,48 +2,42 @@ import os
 import random
 import threading
 import time
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+
+from zoneinfo import ZoneInfo
+from datetime import UTC, datetime, timedelta
+from datetime import time as dt_time
 from email.utils import parsedate_to_datetime
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from dataclasses import dataclass
+from typing import Any
 
 from dotenv import load_dotenv
 from google import genai
-from google.genai import errors as genai_errors
+from google.genai import errors as genai_errors, Client
 
 from config import ModelConfig, TranslatorConfig
 
+# ---  Exceptions Setup ---
+class GeminiTranslationError(RuntimeError):
+    pass
+class GeminiDailyQuotaExhaustedError(GeminiTranslationError):
+    pass
+class EmptyGeminiResponseError(GeminiTranslationError):
+    pass
+
 # --- API Setup ---
 load_dotenv()
-AI_MODEL = ModelConfig.gemini_model
-
 @dataclass(frozen=True, slots=True)
-class GeminiRetryConfig:
+class RetryConfig:
     max_retries: int = TranslatorConfig.GEMINI_MAX_RETRIES
     base_delay_seconds: float = TranslatorConfig.GEMINI_RETRY_BASE_DELAY_SECONDS
     max_delay_seconds: float = TranslatorConfig.GEMINI_RETRY_MAX_DELAY_SECONDS
-
-
 @dataclass(frozen=True, slots=True)
-class GeminiRateLimitConfig:
+class RateLimitConfig:
     requests_per_minute: int = TranslatorConfig.GEMINI_RPM_LIMIT
     input_tokens_per_minute: int = TranslatorConfig.GEMINI_TPM_LIMIT
     requests_per_day: int = TranslatorConfig.GEMINI_RPD_LIMIT
     token_estimate_chars_per_token: int = TranslatorConfig.GEMINI_TOKEN_ESTIMATE_CHARS_PER_TOKEN
-
-
-class GeminiTranslationError(RuntimeError):
-    pass
-
-
-class GeminiDailyQuotaExhaustedError(GeminiTranslationError):
-    pass
-
-
-class EmptyGeminiResponseError(GeminiTranslationError):
-    pass
-
-
 class GlobalCooldown:
     def __init__(self) -> None:
         self._active_until = 0.0
@@ -61,8 +55,6 @@ class GlobalCooldown:
         with self._condition:
             self._active_until = max(self._active_until, time.monotonic() + delay_seconds)
             self._condition.notify_all()
-
-
 class TokenBucketRateLimiter:
     def __init__(self, limit: int, refill_period_seconds: float = 60.0) -> None:
         self._capacity = float(limit)
@@ -103,13 +95,11 @@ class TokenBucketRateLimiter:
 
         self._tokens = min(self._capacity, self._tokens + elapsed_seconds * self._refill_rate)
         self._updated_at = now
-
-
 class DailyRequestLimiter:
     def __init__(self, requests_per_day: int) -> None:
         self._limit = requests_per_day
         self._used = 0
-        self._timezone = _pacific_timezone()
+        self._timezone = ZoneInfo("America/Los_Angeles")
         self._reset_at = _next_pacific_midnight(self._timezone)
         self._condition = threading.Condition()
 
@@ -135,45 +125,27 @@ class DailyRequestLimiter:
 
         self._used = 0
         self._reset_at = _next_pacific_midnight(self._timezone)
-
-
-def get_client() -> genai.Client:
-    api_key = os.getenv("AI_STUDIO_API_KEY")
-    if api_key:
-        return genai.Client(api_key=api_key)
-    if ModelConfig.is_vertex_ai():
-        return genai.Client(vertexai=True, http_options=ModelConfig.flex_mode)
-    raise ValueError("No API key or Vertex AI Project provided")
-
-
-def print_debug(batch_prompt, model_name, generation_config):
-    print(
-        f"--- Debugging Info ---\n"
-        f"Model: {model_name}\n"
-        f"Temperature: {generation_config.temperature}\n"
-        f"System Instruction:\n{generation_config.system_instruction}\n"
-        f"Batch prompt:\n{batch_prompt}"
-    )
-
-
-def _pacific_timezone():
-    try:
-        return ZoneInfo("America/Los_Angeles")
-    except ZoneInfoNotFoundError:
-        return timezone(timedelta(hours=-8), "America/Los_Angeles")
-
-
-def _next_pacific_midnight(pacific_timezone) -> datetime:
-    now = datetime.now(pacific_timezone)
-    tomorrow = now.date() + timedelta(days=1)
-    return datetime.combine(tomorrow, datetime.min.time(), tzinfo=pacific_timezone)
-
-
+# ---------------------------------------------------------------------------------------------------------
+def _next_pacific_midnight(tz: ZoneInfo) -> datetime:
+    tomorrow = datetime.now(tz).date() + timedelta(days=1)
+    return datetime.combine(tomorrow, dt_time.min, tzinfo=tz)
 def _estimate_tokens(prompt_text: str, chars_per_token: int) -> int:
     chars_per_token = max(1, chars_per_token)
     return max(1, len(prompt_text) // chars_per_token)
-
-
+def _response_input_token_count(response) -> int:
+    usage_metadata = getattr(response, "usage_metadata", None)
+    return getattr(usage_metadata, "prompt_token_count", 0)
+def _retry_delay(attempt: int, is_rate_limit: bool, retry_config: RetryConfig) -> float:
+    exponent = attempt + 1 if is_rate_limit else attempt
+    delay_seconds = min(
+        retry_config.base_delay_seconds * (2 ** exponent),
+        retry_config.max_delay_seconds,
+    )
+    return delay_seconds * random.uniform(0.75, 1.25)
+def _require_response_text(response) -> Any | None:
+    if response and response.text:
+        return response.text()
+    raise GeminiTranslationError("Empty response from the Gemini API.")
 def _get_status_code(error: Exception) -> int | None:
     code = getattr(error, "code", None)
     if isinstance(code, int):
@@ -183,15 +155,11 @@ def _get_status_code(error: Exception) -> int | None:
     if isinstance(status_code, int):
         return status_code
     return None
-
-
 def _is_rate_limit_error(error: Exception) -> bool:
     if _get_status_code(error) == 429:
         return True
     error_text = str(error).lower()
     return any(term in error_text for term in ("rate limit", "quota", "resource_exhausted"))
-
-
 def _is_daily_quota_error(error: Exception) -> bool:
     error_text = str(error).lower()
     daily_quota_terms = (
@@ -204,8 +172,6 @@ def _is_daily_quota_error(error: Exception) -> bool:
         " rpd",
     )
     return any(term in error_text for term in daily_quota_terms)
-
-
 def _is_retryable_error(error: Exception) -> bool:
     if isinstance(error, EmptyGeminiResponseError):
         return True
@@ -215,8 +181,6 @@ def _is_retryable_error(error: Exception) -> bool:
     if status_code in {408, 409, 429, 500, 502, 503, 504}:
         return True
     return isinstance(error, genai_errors.ServerError | TimeoutError | ConnectionError)
-
-
 def _retry_after_seconds(error: Exception) -> float | None:
     response = getattr(error, "response", None)
     headers = getattr(response, "headers", None)
@@ -237,47 +201,38 @@ def _retry_after_seconds(error: Exception) -> float | None:
     if retry_at.tzinfo is None:
         retry_at = retry_at.replace(tzinfo=UTC)
     return max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
-
-
-def _retry_delay(attempt: int, is_rate_limit: bool, retry_config: GeminiRetryConfig) -> float:
-    exponent = attempt + 1 if is_rate_limit else attempt
-    delay_seconds = min(
-        retry_config.base_delay_seconds * (2**exponent),
-        retry_config.max_delay_seconds,
+# ---------------------------------------------------------------------------------------------------------
+def print_debug(batch_prompt, model_name, generation_config):
+    print(
+        f"--- Debugging Info ---\n"
+        f"Model: {model_name}\n"
+        f"Temperature: {generation_config.temperature}\n"
+        f"System Instruction:\n{generation_config.system_instruction}\n"
+        f"Batch prompt:\n{batch_prompt}"
     )
-    return delay_seconds * random.uniform(0.75, 1.25)
-
-
-def _response_input_token_count(response) -> int:
-    usage_metadata = getattr(response, "usage_metadata", None)
-    if usage_metadata is None:
-        return 0
-
-    return getattr(usage_metadata, "prompt_token_count", 0) or 0
-
-
-def _require_response_text(response) -> str:
-    response_text = response.text if response else None
-    if not response_text:
-        raise EmptyGeminiResponseError("Empty response from the Gemini API for file.")
-    return response_text
-
+def get_client() -> genai.Client:
+    api_key = os.getenv("AI_STUDIO_API_KEY")
+    if api_key:
+        return genai.Client(api_key=api_key)
+    if ModelConfig.is_vertex_ai():
+        return genai.Client(vertexai=True, http_options=ModelConfig.flex_mode)
+    raise ValueError("No API key or Vertex AI Project provided")
 
 class GeminiTranslationClient:
     def __init__(
-        self,
-        model_name: str = AI_MODEL,
-        debug: bool = False,
-        retry_config: GeminiRetryConfig | None = None,
-        rate_limit_config: GeminiRateLimitConfig | None = None,
-        tpm_limit: int = TranslatorConfig.GEMINI_TPM_LIMIT,
+            self,
+            model_name: str = ModelConfig.gemini_model,
+            debug: bool = False,
+            retry_config: RetryConfig | None = None,
+            rate_limit_config: RateLimitConfig | None = None,
+            tpm_limit: int = TranslatorConfig.GEMINI_TPM_LIMIT,
     ) -> None:
         self._client: genai.Client | None = None
         self._client_lock = threading.Lock()
         self._model_name = model_name
         self._debug = debug
-        self._retry_config = retry_config or GeminiRetryConfig()
-        self._rate_limit_config = rate_limit_config or GeminiRateLimitConfig(input_tokens_per_minute=tpm_limit)
+        self._retry_config = retry_config or RetryConfig()
+        self._rate_limit_config = rate_limit_config or RateLimitConfig(input_tokens_per_minute=tpm_limit)
         self._global_cooldown = GlobalCooldown()
         self._request_limiter = (
             TokenBucketRateLimiter(self._rate_limit_config.requests_per_minute)
@@ -366,10 +321,9 @@ class GeminiTranslationClient:
         if self._daily_request_limiter:
             self._daily_request_limiter.acquire()
 
-    def _get_client(self) -> genai.Client:
+    def _get_client(self) -> Client | None:
         if self._client is not None:
             return self._client
-
         with self._client_lock:
             if self._client is None:
                 self._client = get_client()
