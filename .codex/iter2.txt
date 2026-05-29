@@ -1,0 +1,63 @@
+• I would not approve this plan as-is. It is directionally better, but still too soft on the actual failure modes in
+  translator.py:235.
+
+  Hard Criticism
+  - translator.py:257: checking only response.text is insufficient. MAX_TOKENS, SAFETY, RECITATION, etc. can matter even
+    when text exists. A truncated JSON response may be non-empty and still guaranteed bad. The implementation should
+    inspect candidate finish_reason before returning text, not only when text is empty.
+  - translator.py:121: EmptyGeminiResponseError throws away the response. That makes the proposed
+    _empty_response_is_retryable(response) awkward unless you change the exception to carry response, or avoid raising
+    until after classification.
+  - translator.py:145: replacing string parsing with APIError.code/message is not enough. Use code, status, message, and
+    details. Google-style quota errors usually carry stable structured status like RESOURCE_EXHAUSTED; message text is
+    still presentation-layer sludge. The SDK docs explicitly expose APIError.code and APIError.message, and local SDK
+    instances also expose status/details.
+  - translator.py:162: retryability is too broad and too flat. 429 RESOURCE_EXHAUSTED can mean RPM, TPM, daily quota,
+    shared capacity, billing/project quota, or provisioned-throughput exhaustion. Those should not all trigger the same
+    global cooldown/retry path.
+  - translator.py:248: the limiter order has partial-consumption bugs. RPM is consumed before TPM waits, and both are
+    consumed before daily limit acquisition. If daily acquisition fails, the request/token buckets have already been
+    mutated despite no API attempt.
+  - translator.py:247: retries should count against local RPD only if an API attempt is actually about to be made. But do
+    not “refund” attempts that reached the API and failed with 5xx/429/empty response; providers may still count those.
+    The right boundary is after local setup/preflight, immediately before generate_content().
+  - translator.py:56: clamping oversized token requests is a serious hidden failure. A 400k-token estimate against a 250k
+    TPM limiter should fail clearly or force batching. Clamping makes the limiter lie.
+  - translator.py:73: update_actual() can drive _tokens negative. That creates weird long sleeps later and makes limiter
+    state hard to reason about.
+
+  Missing Edge Cases
+  - BLOCKLIST, PROHIBITED_CONTENT, SPII, MALFORMED_FUNCTION_CALL, UNEXPECTED_TOOL_CALL, FINISH_REASON_UNSPECIFIED, and
+    image-related finish reasons are not in the plan. For this app, most should be non-retryable or at least not retried
+    9 times with the same prompt.
+  - MAX_TOKENS with partial JSON is probably worse than empty output. Returning it lets downstream parsing produce noisy
+    per-line errors instead of a clear “batch too large / output truncated” failure.
+  - Prompt block lives in response.prompt_feedback; output block lives on candidate metadata. The code needs to inspect
+    both. Gemini docs show prompt_feedback, candidates, candidate finish_reason, and usage metadata as structured fields.
+  - response.text only concatenates text from the first candidate. If the SDK ever returns multiple candidates, this code
+    ignores all but the first. Probably acceptable with default candidate count, but it should be an explicit assumption.
+  - Network exceptions are underclassified. Built-in TimeoutError does not necessarily catch httpx.TimeoutException,
+    requests.Timeout, TLS failures, DNS failures, or Google auth transport failures unless the SDK wraps them.
+  - No request timeout means GEMINI_MAX_RETRIES is fake protection. One hung HTTP call can block forever before retries
+    even start.
+  - “GlobalCooldown” is not global. It is per GeminiTranslationClient instance. Multiple clients or processes multiply
+    your quota pressure.
+  - Local RPD is memory-only. Restarting the process resets it, so it is a burst guard, not a quota tracker.
+  - translator.py:200: client config is brittle. The official SDK supports env-driven GEMINI_API_KEY / GOOGLE_API_KEY and
+    Vertex env vars; this implementation hand-rolls AI_STUDIO_API_KEY and checks only GOOGLE_CLOUD_PROJECT.
+  - translator.py:306: the client is never closed. The SDK docs call out explicit client closing for HTTP resource
+    cleanup.
+
+  Plan Changes I’d Demand
+
+  - Classify every response before returning text, not only empty responses.
+  - Make empty/blocked/truncated response errors carry structured response diagnostics.
+  - Catch genai_errors.APIError before generic Exception; use code/status/message/details.
+  - Validate prompt size before acquiring mutable limiters.
+  - Acquire client before limiters.
+  - Acquire daily/RPM/TPM as one conceptual reservation, or order them so failures do not mutate earlier buckets.
+  - Add a real HTTP timeout.
+
+  Sources used: Google Gen AI Python SDK error handling and client lifecycle docs, plus SDK response metadata docs for
+  prompt_feedback, candidates, finish reasons, and usage metadata.
+

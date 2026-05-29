@@ -1,0 +1,63 @@
+ Findings
+  - High: The quota/error classifier is string-parsing folklore. translator.py:145 and translator.py:150 depend on
+    English substrings like "daily quota" and " rpd". Edge cases missed: billing quota exhausted, model-specific quota,
+    regional Vertex quota, provisioned throughput/flex capacity exhaustion, changed API wording, and structured error
+    details. google-genai exposes APIError.code/message; this should not be guessed from str(error) alone.
+  - High: Local quota is consumed before the API call is known to happen. translator.py:248 acquires request/token/daily
+    quota before client creation and before any local failure. Missing credentials, bad config, or daily limiter failure
+    can burn local counters. Retries also consume local RPD every time, so one bad deterministic response can eat 9 local
+ 
+  What I’d push for: keep the module API boring, catch google.genai.errors.APIError explicitly, add a real timeout, fail fast on deterministic empty/blocked responses.
+  
+ Implementation Plan: 
+  1. Classify empty responses correctly
+      - Add _empty_response_is_retryable(response) -> bool.
+      - Treat these as non-retryable:
+          - prompt blocked
+          - SAFETY
+          - RECITATION
+          - LANGUAGE
+          - MAX_TOKENS
+
+      - Treat OTHER, missing candidates, or unknown states as retryable only if no clear deterministic cause is found.
+      - In translate_batch(), handle EmptyGeminiResponseError separately so it can decide using the captured response
+        details.
+
+  2. Replace error string guessing with APIError handling
+      - Catch/check google.genai.errors.APIError.
+      - Use error.code and error.message as the primary source.
+      - Keep substring matching only as a fallback for unknown exception types.
+      - Split helpers into:
+          - _is_rate_limit_error(error)
+          - _is_daily_quota_error(error)
+          - _is_retryable_api_error(error)
+
+      - Avoid classifying all "quota" messages as equivalent. Daily quota, RPM/TPM throttling, billing quota, and model
+        capacity should not all behave the same.
+
+  3. Fix local limiter accounting order
+      - Do not consume daily/request/token quota before local setup succeeds.
+      - Ensure _get_client() happens before limiter acquisition.
+      - Do not count failed client construction, missing credentials, invalid config, or local validation as a request.
+      - Decide whether retries should count against local RPD. I’d count only actual API attempts, but make that
+        explicit.
+
+  4. Fix token bucket behavior
+      - Change _estimate_tokens() to use ceiling division:
+
+        (len(prompt_text) + chars_per_token - 1) // chars_per_token
+
+      - Add a reserve/multiplier for system instruction and schema overhead.
+      - Do not silently clamp oversized requests to bucket capacity.
+      - If estimated tokens exceed local TPM capacity, either:
+          - raise a clear “batch too large for configured TPM limit” error, or
+          - allow it only when TPM limiter is disabled.
+
+      - Prevent update_actual() from making _tokens negative.
+
+  5. Acceptance criteria
+      - Deterministic empty responses do not waste all retry attempts.
+      - Retry behavior is driven by structured SDK fields where available.
+      - Local rate limiting no longer hides oversized prompts or burns quota on local failures.
+      - uv run python -m py_compile translator.py, uv run ruff check translator.py, and uv run ty check translator.py
+        pass.

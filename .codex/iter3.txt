@@ -1,0 +1,62 @@
+ The plan is overcorrecting. For this repo, the fix should delete ambiguity, not build a miniature Gemini failure
+taxonomy.
+
+  What I’d Criticize
+
+  - The empty-response plan is too broad. If MAX_TOKENS, tool calling, image reasons, multi-candidate handling, and
+    safety blocks are outside the real operating envelope, do not encode them. That is dead branch inventory.
+
+  - _empty_response_is_retryable(response) is probably not worth a helper unless it replaces code. A simple local check
+    in translate_batch() is easier to review.
+
+  - Splitting into _is_rate_limit_error, _is_daily_quota_error, and _is_retryable_api_error risks preserving the current
+    mess with nicer names. The current bug is not “helpers are missing”; it is that the module pretends it can know too
+    much from unstable text.
+
+  - I would remove most fallback substring matching, not “keep it as fallback.” If google-genai wraps API failures as
+    APIError, trust that. Unknown non-API exceptions should mostly fail, not enter a retry loop.
+
+  - Daily quota detection is a trap. If the SDK does not expose a stable quota category, don’t pretend. Either treat
+    local GEMINI_RPD_LIMIT as the daily guard and treat remote 429 as retryable, or fail remote RESOURCE_EXHAUSTED
+    clearly. Half-detecting “daily quota” by prose is worse than not detecting it.
+
+  - The token multiplier/reserve idea smells like fake precision. The local TPM limiter is a burst throttle, not billing-
+    grade accounting. Fix floor/ceil and oversized clamping. Do not add knobs unless there is a measured failure.
+
+  - update_actual() is probably not worth keeping. It adds mutable accounting complexity after the request and can
+    corrupt the bucket. Simpler: estimate conservatively and never reconcile. Less code, fewer bugs.
+
+  - Global cooldown is overbuilt if there is one client instance. If multiple workers share one GeminiTranslationClient,
+    the RPM limiter already serializes attempts. Cooldown only helps after remote 429. Keep it only if it demonstrably
+    reduces retry storms.
+
+  Real Edge Cases Still Worth Handling
+
+  - Client creation currently happens after local quota acquisition. That is a real bug and should be fixed.
+  - _acquire_rate_limits() mutates RPM/TPM before daily acquisition. If daily acquisition fails, earlier buckets are
+    already consumed. Acquire daily first, or preflight daily before mutating buckets.
+
+  - Token estimate uses floor division. Fix to ceiling division. One line.
+  - Oversized prompt is silently clamped by TokenBucketRateLimiter.acquire(). That is a real hidden failure. Raise if
+    requested tokens exceed capacity.
+
+  - Catch genai_errors.APIError explicitly before generic exceptions. Use error.code / error.status. Do not retry random
+    ValueError, config errors, or parsing bugs.
+
+  - Add an API timeout if the SDK/config supports it with existing HttpOptions. No new dependency, no custom network
+    exception zoo.
+
+  Minimal Rewrite Direction
+
+  I’d aim for fewer helpers, not more:
+
+  - get_client() before limiter acquisition.
+  - Replace string classifiers with one small retry check for genai_errors.APIError.
+  - Retry only SDK API/server failures the SDK exposes.
+  - Fix token ceil.
+  - Reject oversized token acquisition instead of clamping.
+  - Remove or simplify update_actual().
+
+  That should be a small diff. If the rewrite grows translator.py, it is probably solving imaginary cases.
+
+  Implementation Plan in Plan.md

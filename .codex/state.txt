@@ -1,0 +1,47 @@
+Based on the morning state.
+
+Code Review :
+do a git diff of translator.py compared to the dev branch. Pretend you're a senior dev doing a code review and you
+HATE this implementation. What would you criticize? What edge cases am I missing? Focus on the translator.py file
+ alone
+
+1. Code Review -> Findings (findings_first_review.txt)
+
+Code Review 2:
+Read the high-priority code-review findings and implementation plan above. Pretend you're a senior dev doing a second-
+check and you HATE this implementation. What would you criticize? What edge cases am I missing? Focus on the
+translator.py implementation alone. -> (Iter_2.txt)
+
+2. Code Review 2 -> Findings (iter2.txt)
+
+Iter2 simplification :
+Critize this while keeping in mind $moyu_en guidelines and the ones below.
+1. The API will never reach MAX_TOKENS, tool calling or image generation it's overkill for a simple xlsx translation.
+2. Safety filters are disabled so safety exceptions won't occur either
+3. There will never be more than one candidate, 1 file -> one candidate, we don't need to check for this.
+4. Don't reinvent the wheel, keep only the network exceptions that the API wraps, the author of the API knows better than we do.
+
+2. Iter2 simplification -> Iter3.txt
+
+Iter3 Plan :
+Create a Implementation plan following this. Follow moyu rewrite direction,while especially focusing on  Remove dead
+code, aim for fewer helpers not more. remove update_actual
+
+3. Iter3 Plan -> Plan.md
+
+4. Plan.md implementation.
+5. Two agents to verify the implementation follows the Plan -> commit
+6. Another Code Review
+7. Another Code Review Plan -> code_review_plan.md
+8. Another agent verifies -> Code_Review_changelog.md
+9. Implementation -> Code_Review_changelog.md
+10. Code Review after implementation -> Code_Review_after_implementation.md
+
+7/8/9/10 Prompt
+
+/goal Create a plan to implement these changes, save it to code_review_plan.md, let a separate agent review it, then
+     implement it and create a changelog code_review_changelog.md, at the end commit it. Remember to use $moyu-en
+     guidance to not over-engineer and focus on realistic usage based on the sample input xlsx not hypothetical 'in can
+     be helpful later'. After a commit run another code review pass and save the results to
+     code_review_after_implement.md End goal: three md files written, smoke tests performed, commit made and ruff check .
+     doesn't output any errors.

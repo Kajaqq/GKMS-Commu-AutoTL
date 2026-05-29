@@ -1,0 +1,105 @@
+  Findings
+  - High: Empty Gemini responses are treated as retryable without inspecting why. translator.py:121 and translator.py:162
+    will retry safety blocks, max-token truncation, recitation blocks, schema failures, or candidate/finish-reason
+    problems as if they were transient. That can waste 9 attempts and still hide the useful diagnostic.
+  - High: The quota/error classifier is string-parsing folklore. translator.py:145 and translator.py:150 depend on
+    English substrings like "daily quota" and " rpd". Edge cases missed: billing quota exhausted, model-specific quota,
+    regional Vertex quota, provisioned throughput/flex capacity exhaustion, changed API wording, and structured error
+    details. google-genai exposes APIError.code/message; this should not be guessed from str(error) alone.
+  - High: The token limiter is mathematically suspect. translator.py:56 clamps any request larger than the TPM capacity
+    down to the capacity, so a huge workbook can still be sent immediately. translator.py:118 also floors instead of
+    ceilings token estimates, ignores system/schema overhead, and is especially weak for Japanese text. After success,
+    translator.py:73 can drive the bucket negative if actual tokens exceed the estimate.
+  - High: Local quota is consumed before the API call is known to happen. translator.py:248 acquires request/token/daily
+    quota before client creation and before any local failure. Missing credentials, bad config, or daily limiter failure
+    can burn local counters. Retries also consume local RPD every time, so one bad deterministic response can eat 9 local
+    daily slots.
+  - Medium: The “global” cooldown is only per GeminiTranslationClient instance. translator.py:218 does not protect
+    multiple client instances, multiple script runs, or future process-level parallelism. The name promises more than it
+    delivers.
+  - Medium: There is no request timeout. translator.py:252 can hang a thread indefinitely on network stalls, which makes
+    the retry logic irrelevant.
+  - Low: Threaded print logging will interleave and dump full prompts in debug mode. translator.py:192 can spew workbook
+    contents and make parallel runs unreadable.
+  What I’d push for: keep the module API boring, catch google.genai.errors.APIError explicitly, use documented code/
+  message plus candidate/prompt feedback diagnostics, add a real timeout, fail fast on deterministic empty/blocked
+  responses, and either remove the homemade quota stack or drastically simplify it with tests for oversized prompts,
+  retries, empty responses, and concurrent workers.
+
+  • Implementation Plan for High ranked issues
+
+  1. Add structured response diagnostics
+      - Add _summarize_response_failure(response) -> str.
+      - Inspect:
+          - prompt_feedback.block_reason
+          - prompt_feedback.block_reason_message
+          - prompt_feedback.safety_ratings
+          - each candidate’s finish_reason
+          - finish_message
+          - safety_ratings
+          - content.parts
+          - usage_metadata
+          - model_status
+
+      - Change _require_response_text() to raise EmptyGeminiResponseError with these details.
+
+  2. Classify empty responses correctly
+      - Add _empty_response_is_retryable(response) -> bool.
+      - Treat these as non-retryable:
+          - prompt blocked
+          - SAFETY
+          - RECITATION
+          - LANGUAGE
+          - MAX_TOKENS
+
+      - Treat OTHER, missing candidates, or unknown states as retryable only if no clear deterministic cause is found.
+      - In translate_batch(), handle EmptyGeminiResponseError separately so it can decide using the captured response
+        details.
+
+  3. Replace error string guessing with APIError handling
+      - Catch/check google.genai.errors.APIError.
+      - Use error.code and error.message as the primary source.
+      - Keep substring matching only as a fallback for unknown exception types.
+      - Split helpers into:
+          - _is_rate_limit_error(error)
+          - _is_daily_quota_error(error)
+          - _is_retryable_api_error(error)
+
+      - Avoid classifying all "quota" messages as equivalent. Daily quota, RPM/TPM throttling, billing quota, and model
+        capacity should not all behave the same.
+
+  4. Fix local limiter accounting order
+      - Do not consume daily/request/token quota before local setup succeeds.
+      - Ensure _get_client() happens before limiter acquisition.
+      - Do not count failed client construction, missing credentials, invalid config, or local validation as a request.
+      - Decide whether retries should count against local RPD. I’d count only actual API attempts, but make that
+        explicit.
+
+  5. Fix token bucket behavior
+      - Change _estimate_tokens() to use ceiling division:
+
+        (len(prompt_text) + chars_per_token - 1) // chars_per_token
+
+      - Add a reserve/multiplier for system instruction and schema overhead.
+      - Do not silently clamp oversized requests to bucket capacity.
+      - If estimated tokens exceed local TPM capacity, either:
+          - raise a clear “batch too large for configured TPM limit” error, or
+          - allow it only when TPM limiter is disabled.
+
+      - Prevent update_actual() from making _tokens negative.
+
+  6. Add targeted tests
+      - Test empty response with prompt_feedback.block_reason is non-retryable.
+      - Test candidate finish_reason=MAX_TOKENS is non-retryable and produces useful diagnostics.
+      - Test APIError 429 is retryable unless daily-quota specific.
+      - Test APIError 403/400 is non-retryable.
+      - Test oversized estimated tokens are not silently clamped.
+      - Test local daily/request counters are not consumed when client creation fails.
+
+  7. Acceptance criteria
+      - Empty response errors explain why Gemini returned no text.
+      - Deterministic empty responses do not waste all retry attempts.
+      - Retry behavior is driven by structured SDK fields where available.
+      - Local rate limiting no longer hides oversized prompts or burns quota on local failures.
+      - uv run python -m py_compile translator.py, uv run ruff check translator.py, and uv run ty check translator.py
+        pass.
