@@ -222,6 +222,7 @@ def process_excel_files_in_folder(
     Finds and processes Excel files (.xlsx) in a given local folder.
     """
     processed_count = 0
+    is_single_file = False
     source_folder = Path(source_folder_path)
     output_folder = Path(output_folder_path)
 
@@ -231,7 +232,16 @@ def process_excel_files_in_folder(
     output_folder.mkdir(parents=True, exist_ok=True)
 
     commu_files = sorted(source_folder.glob("*.xlsx"))
-    if not commu_files:
+    if commu_files:
+        commu_len = len(commu_files)
+        if commu_len > 1:
+            print(f"Found {commu_len} Excel files in {source_folder}.")
+            print(f"Will run {max_parallel_files} in parallel.")
+        elif commu_len == 1:
+            print(f"Found one Excel file in {source_folder}.")
+            print("Running in single file mode.")
+            is_single_file = True
+    else:
         raise FileNotFoundError(f"No Excel files found in {source_folder}.")
 
     translation_client = GeminiTranslationClient()
@@ -244,6 +254,7 @@ def process_excel_files_in_folder(
                                         translation_client=translation_client,
                                         replace_single_term=replace_single_term)
         print(f"\n--- Processing file: {source_file_name} ---")
+        print("This may take a while, please be patient.")
         return translator.process()
 
     worker_count = max(1, max_parallel_files)
@@ -252,7 +263,7 @@ def process_excel_files_in_folder(
         futures = {
             executor.submit(process_file, source_file_path): source_file_path for source_file_path in commu_files
         }
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing files", unit="file"):
+        for future in tqdm(as_completed(futures),total=len(futures), desc="Translating files",  unit="file", disable=is_single_file):
             source_file_path = futures[future]
             try:
                 if future.result():
