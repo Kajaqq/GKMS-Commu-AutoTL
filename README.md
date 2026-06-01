@@ -33,7 +33,7 @@ Rename `.env.example` to `.env`
 Set the `GOOGLE_CLOUD_PROJECT` variable in the `.env` file.
 
 ## TODO:
-  - ~~Unslopify the `process_excel_files.py`~~  Mostly done.
+  - ~~Unslopify the `process_excel_files.py`~~  Done.
   - ~~Load the speaking styles dynamically, based on which characters are in a given commu.~~ Done.
   - ~~Add a QC gate to check if the rules are followed~~ Done, migrated to Pydantic for validation.
   - Improve the translator logic:
