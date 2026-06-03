@@ -26,9 +26,6 @@ class ModelConfig:
     # Low thinking halves the quality of instruction following, so we set it to Medium
     thinking_level = ThinkingConfig(thinking_level=ThinkingLevel.MEDIUM)
 
-    # Allow the usage of Flex Mode for the API call to halve the API call cost
-    service_tier = ServiceTier.STANDARD if not flex_mode_enabled else ServiceTier.FLEX
-
     @staticmethod
     def _get_rate_limits(model_name, usage_tier):
         if usage_tier == 'free' and '-pro' in model_name:
@@ -61,6 +58,8 @@ class ModelConfig:
 
     @staticmethod
     def _get_retry_config(is_flex_mode=False):
+        flex_mode_headers = {"X-Vertex-AI-LLM-Request-Type": "shared",
+                             "X-Vertex-AI-LLM-Shared-Request-Type": "flex"}
         # Response timeout for the API call in milliseconds. Higher in flex mode.
         timeout = 120 * 1000 if not is_flex_mode else 10 * 60 * 1000
         # Max retries for the API call.
@@ -74,6 +73,7 @@ class ModelConfig:
         http_status_codes = [408, 429, 500, 502, 503, 504]
 
         http_options = HttpOptions(
+            headers= flex_mode_headers if is_flex_mode else None,
             timeout=timeout,
             retry_options=HttpRetryOptions(
                 initial_delay=initial_delay,
@@ -92,7 +92,6 @@ class ModelConfig:
         response_mime_type="application/json",
         response_schema=TranslationResponse,
         thinking_config=thinking_level,
-        service_tier=service_tier
     )
 
     GEMINI_RPM_LIMIT, GEMINI_TPM_LIMIT, GEMINI_RPD_LIMIT = _get_rate_limits(gemini_model,usage_tier)
