@@ -20,7 +20,7 @@ This script uses the `config/config.py` file to set non-sensitive configuration 
 
 For API keys, it uses `.env` 
 
-It supports both Google AI Studio and Vertex AI(now Gemini Enterprise Agent Platform) API.
+It supports both Google AI Studio and Vertex AI (now Gemini Enterprise Agent Platform) API.
 
 ### For Google AI Studio usage:
 Rename `.env.example` to `.env` 
@@ -34,12 +34,12 @@ Setup gcloud CLI and [Authenticate to the Platform](https://docs.cloud.google.co
 Then set the `GOOGLE_GENAI_USE_ENTERPRISE` variable to `True` in the `.env` file
 
 ### Other important configuration
-Depending on your API tier, your rate limits may vary.
 
-The script uses AI Studio free tier limits by default.
+#### The below only applies to Google AI Studio API as Vertex doesn't have rate limits, it instead uses something called a *Dynamic Shared Quota*
 
-To use the paid tier limits,  set the `PAID_TIER` variable in the `.env` file to `True` 
+Depending on your API tier, your rate limits may vary.  The script uses AI Studio free tier limits by default.
 
+To use the paid tier limits, set the `PAID_TIER` variable in the `.env` file to `True`. 
 This will increase the limits to Tier 1 ones.
 
 The default limits are as follows:
