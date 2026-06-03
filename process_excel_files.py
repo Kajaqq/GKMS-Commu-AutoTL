@@ -207,7 +207,7 @@ class WorkbookTranslator:
 
         self.output_file.parent.mkdir(parents=True, exist_ok=True)
         self.workbook.save(self.output_file)
-        print(f"Saved output to: {self.output_file}")
+        print(f"\nSaved output to: {self.output_file}")
         return True
 
 # --- Parallel Folder Processing ---
@@ -242,9 +242,11 @@ def process_excel_files_in_folder(
             print(f"Found {commu_len} Excel files in {source_folder}.")
             print(f"Will run {max_parallel_files} in parallel.")
             print("This may take a while, please be patient.")
+            print('=' * 80)
         elif commu_len == 1:
             print(f"Found one Excel file in {source_folder}.")
             print("Running in single file mode.")
+            print('=' * 80)
             is_single_file = True
     else:
         raise FileNotFoundError(f"No Excel files found in {source_folder}.")
@@ -295,11 +297,15 @@ def print_batch_summary(
     failed_files: list[tuple[Path, Exception]],
     files_with_translation_errors: list[tuple[Path, int]],
 ) -> None:
-    print(
-        f"\nScript finished. Saved {processed_count} files, "
-        f"{len(failed_files)} failed, "
-        f"{len(files_with_translation_errors)} saved with translation errors."
-    )
+    print('=' * 80)
+    if processed_count == 1:
+        print(f"Script finished. Saved {processed_count} file.")
+    else:
+        print(f"Script finished. Saved {processed_count} files")
+    if failed_files:
+        f", {len(failed_files)} failed"
+    if files_with_translation_errors:
+        f", {len(files_with_translation_errors)} saved with translation errors."
 
     if files_with_translation_errors:
         print("\nFiles with translation errors:")
@@ -316,5 +322,8 @@ def print_batch_summary(
 # --- Run the script ---
 if __name__ == "__main__":
     print("Starting Gakumas Commu Excel Batch Translator script...")
+    print(f"Source folder: {TranslatorConfig.SOURCE_FOLDER_PATH}")
+    print(f"Output folder: {TranslatorConfig.OUTPUT_FOLDER_PATH}")
+    print('=' * 80)
     _, has_errors = process_excel_files_in_folder()
     raise SystemExit(1 if has_errors else 0)
