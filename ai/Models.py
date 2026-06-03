@@ -3,7 +3,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
-from prompts import TRANSLATION_PROMPT_TEMPLATE, LINE_FORMAT_TEMPLATE
+from config.prompts import TRANSLATION_PROMPT_TEMPLATE, LINE_FORMAT_TEMPLATE
 
 class InvalidHeaderException(Exception):
     """

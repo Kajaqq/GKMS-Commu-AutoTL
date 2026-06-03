@@ -1,9 +1,9 @@
 from pydantic import ValidationError
 
-from character_styles import CHARACTER_SPEAKING_STYLES
-from dictionary import NAME_TERM_TRANSLATIONS
-from Models import PromptReferences, SourceLine, TranslationResponse
-from config import TranslatorConfig
+from config.character_styles import CHARACTER_SPEAKING_STYLES
+from config.dictionary import NAME_TERM_TRANSLATIONS
+from config.config import TranslatorConfig
+from ai.Models import PromptReferences, SourceLine, TranslationResponse
 
 def get_prompt_references(source_lines: list[SourceLine]) -> PromptReferences:
     """
@@ -29,14 +29,10 @@ def parse_translation_response(response_text: str, expected_line_numbers: set[in
     """
     Validates the recieved translations and checks for empty lines.
     """
-
-    try:
-        response = TranslationResponse.model_validate_json(
+    response = TranslationResponse.model_validate_json(
             response_text,
             context=expected_line_numbers,
         )
-    except ValidationError as error:
-        raise ValueError(f"API response failed validation: {error}") from error
 
     parsed_translations: dict[int, str] = {}
 

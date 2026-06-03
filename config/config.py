@@ -1,10 +1,9 @@
-import os
 from dataclasses import dataclass
 
-from google.genai.types import GenerateContentConfig, HttpOptions, ThinkingConfig, ThinkingLevel
+from google.genai.types import GenerateContentConfig, HttpOptions, HttpRetryOptions, ThinkingConfig, ThinkingLevel
 
-from Models import TranslationResponse
-from prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
+from ai.Models import TranslationResponse
+from config.prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,15 +16,6 @@ class ModelConfig:
     # Low thinking halves the quality of instruction following, so we set it to Medium
     thinking_level = ThinkingConfig(thinking_level=ThinkingLevel.MEDIUM)
 
-    # Used with Vertex AI, helps with rate-limiting errors and halves the costs
-    # WARNING: Supported only with Gemini 3 series models.
-    flex_mode = HttpOptions(
-        headers={
-            "X-Vertex-AI-LLM-Request-Type": "shared",
-            "X-Vertex-AI-LLM-Shared-Request-Type": "flex",
-        }
-    )
-
     generation_config = GenerateContentConfig(
         temperature=temp,
         system_instruction=TRANSLATION_SYSTEM_INSTRUCTIONS,
@@ -34,11 +24,36 @@ class ModelConfig:
         thinking_config=thinking_level,
     )
 
-    @staticmethod
-    def is_vertex_ai() -> bool:
-        # TODO: Find a better way to detect Vertex AI
-        vertex_project = os.getenv("GOOGLE_CLOUD_PROJECT", None)
-        return True if vertex_project else False
+    class RetryConfig:
+        # Use to enable Flex Mode Billing for Vertex AI API calls.
+        flex_mode = False
+        flex_mode_headers = {
+            "X-Vertex-AI-LLM-Request-Type": "shared",
+            "X-Vertex-AI-LLM-Shared-Request-Type": "flex"
+        }
+
+        # Response timeout for the API call in milliseconds.
+        timeout = 120 * 1000
+        # Max retries for the API call.
+        max_attempts = 5
+        # Exponential backoff config for retries.
+        initial_delay = 1.0
+        max_delay = 60.0
+        exp_base = 2.0
+        jitter = 1.0
+        # HTTP status codes to retry on.
+        http_status_codes = [408, 429, 500, 502, 503, 504]
+
+        http_options = HttpOptions(
+            headers=flex_mode_headers if flex_mode else None,
+            timeout=timeout,
+            retry_options=HttpRetryOptions(
+                initial_delay=initial_delay,
+                attempts=max_attempts,
+                max_delay=max_delay,
+                exp_base=exp_base,
+                jitter=jitter,
+                http_status_codes=http_status_codes,),)
 
 
 class TranslatorConfig:
@@ -60,17 +75,13 @@ class TranslatorConfig:
     EMPTY_RESPONSE_ERROR = f"{TRANSLATION_ERROR_SIGN} API returned empty response."
     MISSING_LINE_NUMBER_ERROR = f"{TRANSLATION_ERROR_SIGN} API didn't return this line number."
 
-    # Parallel file processing and Gemini retry/rate-limit controls.
+    # Parallel file processing and Gemini local rate-limit controls.
     MAX_PARALLEL_FILES = 5
     # These defaults are based on conservative Google AI Studio limits. Set to 0 to disable a local limiter.
     # Vertex AI limits can be dynamic, but these caps still prevent local worker bursts.
     GEMINI_RPM_LIMIT = 10
     GEMINI_TPM_LIMIT = 250_000
     GEMINI_RPD_LIMIT = 250
-    GEMINI_MAX_RETRIES = 8
-    GEMINI_RETRY_BASE_DELAY_SECONDS = 2.0
-    GEMINI_RETRY_MAX_DELAY_SECONDS = 120.0
-    GEMINI_TOKEN_ESTIMATE_CHARS_PER_TOKEN = 4
 
 
 class ExcelConfig:

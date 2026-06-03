@@ -1,4 +1,4 @@
-from config import ReplacementConfig
+from config.config import ReplacementConfig
 
 
 def strip_wrapping_quotes(text: str) -> str:

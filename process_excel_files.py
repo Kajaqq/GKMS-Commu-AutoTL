@@ -8,13 +8,13 @@ from openpyxl.cell.cell import Cell, MergedCell
 from tqdm import tqdm
 
 # --- Import Configuration ---
-from config import ExcelConfig, TranslatorConfig
-from dictionary import NAME_TERM_TRANSLATIONS
-from formatting import wrap_text
-from Models import PromptReferences, SourceLine, TranslationPrompt, InvalidHeaderException
-from text_utils import normalize_cell, safe_str, strip_whitespace
-from translator import GeminiTranslationClient
-from translator_helper import get_prompt_references, parse_translation_response
+from ai.Models import PromptReferences, SourceLine, TranslationPrompt, InvalidHeaderException
+from ai.translator import GeminiTranslationClient
+from config.config import ExcelConfig, TranslatorConfig
+from config.dictionary import NAME_TERM_TRANSLATIONS
+from utils.text_utils import normalize_cell, safe_str, strip_whitespace
+from utils.formatting import wrap_text
+from utils.translator_helper import get_prompt_references, parse_translation_response
 
 # --- Sheet utils ---
 expected_header = [
@@ -210,7 +210,7 @@ class WorkbookTranslator:
         print(f"Saved output to: {self.output_file}")
         return True
 
-# --- Folder Processing ---
+# --- Parallel Folder Processing ---
 
 def process_excel_files_in_folder(
     source_folder_path=TranslatorConfig.SOURCE_FOLDER_PATH,

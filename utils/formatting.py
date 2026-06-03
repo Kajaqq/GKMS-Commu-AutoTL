@@ -1,6 +1,6 @@
 import textwrap
-from config import FormattingConfig
-from text_utils import clean_text
+from config.config import FormattingConfig
+from utils.text_utils import clean_text
 
 
 def wrap_per_line_limits(text: str, line_limits: list[int]) -> list[str]:
