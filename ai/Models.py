@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 from config.prompts import TRANSLATION_PROMPT_TEMPLATE, LINE_FORMAT_TEMPLATE
 
-class InvalidHeaderException(Exception):
+class InvalidHeaderException(ValueError):
     """
     Thrown when an invalid header is encountered.
     """

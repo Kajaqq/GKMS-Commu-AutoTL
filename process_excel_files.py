@@ -24,20 +24,16 @@ expected_header = [
     ExcelConfig.SOURCE,
     ExcelConfig.TARGET,
 ]
-filled_rows = len(expected_header)
+header_len = len(expected_header)
 
 def validate_header_row(sheet):
     """
     Checks if the header row is present and contains the expected headers
     """
     sheet_header = [normalize_cell(cell.value) for cell in sheet[1]]
-    sheet_header = sheet_header[:filled_rows]
+    sheet_header = sheet_header[:header_len]
     if sheet_header != expected_header:
-        raise InvalidHeaderException(
-                f"Header row has incorrect headers: "
-                f"Expected headers: {', '.join(expected_header)}."
-                f"File headers: {', '.join(sheet_header)}"
-        )
+        raise InvalidHeaderException("Header row has incorrect headers.")
 
 def load_workbook(source_file: Path) -> tuple[openpyxl.Workbook, Any]:
     workbook = openpyxl.load_workbook(source_file)
@@ -53,6 +49,7 @@ def request_translations_from_api(
     source_lines: list[SourceLine],
     references: PromptReferences,
     translation_client: GeminiTranslationClient,
+    file_name: str,
 ) -> dict[int, str]:
     """
     Builds the prompt, calls the Gemini API, and parses the response.
@@ -66,7 +63,7 @@ def request_translations_from_api(
         target_lang=TranslatorConfig.TARGET_LANGUAGE,
     )
     api_lines_numbers = {line.line_number for line in source_lines}
-    print(f"Sending {len(source_lines)} lines to Gemini...")
+    print(f"[{file_name}]: Sending {len(source_lines)} lines to Gemini...")
     api_translations = translation_client.translate_batch(batch_prompt)
 
     return parse_translation_response(
@@ -94,6 +91,7 @@ class WorkbookTranslator:
     source_lines: list[SourceLine] = field(default_factory=list, init=False) # Formatted lines for translation -- {line_num, speaker, text} format
     dict_translations: dict[int, str] = field(default_factory=dict, init=False) # For `replace_from_dict` usage
     row_metadata: list[tuple[int, Cell, str]] = field(default_factory=list, init=False) # Metadata of rows that need translation
+    translation_error_count: int = field(default=0, init=False)
 
     @property
     def file_name(self) -> str:
@@ -112,22 +110,22 @@ class WorkbookTranslator:
             return self.save(overwrite=False)
 
         parsed_api_translations = self.translate_rows()
-        translation_error_count = self.write_translations(parsed_api_translations)
+        self.translation_error_count = self.write_translations(parsed_api_translations)
         saved = self.save()
 
-        if translation_error_count > 0:
+        if self.translation_error_count > 0:
             # TODO: Expand this to allow choosing from:
             #  a) erroring out(strict mode)
             #  b) retrying with the full context,
             #  c) retrying with only the failed lines
-            #  d) Doing nothing (Warning only, current behaviour)
-            print(f"WARNING: {self.file_name} may require a rerun due to {translation_error_count} translation errors.")
+            #  d) Warning, final summary reporting, and non-zero CLI exit (current behaviour)
+            print(f"[{self.file_name}]: Warning: may require a rerun due to {self.translation_error_count} translation errors.")
 
         return saved
 
     def collect_rows(self) -> None:
         # All rows, excluding header
-        data_rows = self.sheet.iter_rows(min_row=2, min_col=1, max_col=filled_rows)
+        data_rows = self.sheet.iter_rows(min_row=2, min_col=1, max_col=header_len)
 
         # Read and rows and prepare the data
         for line_number, row in enumerate(data_rows, start=1):
@@ -180,6 +178,7 @@ class WorkbookTranslator:
             source_lines=self.source_lines,
             references=translation_references,
             translation_client=translation_client,
+            file_name=self.file_name,
         )
 
     def write_translations(self, parsed_api_translations: dict[int, str]) -> int:
@@ -223,6 +222,8 @@ def process_excel_files_in_folder(
     Finds and processes Excel files (.xlsx) in a given local folder.
     """
     processed_count = 0
+    failed_files: list[tuple[Path, Exception]] = []
+    files_with_translation_errors: list[tuple[Path, int]] = []
     is_single_file = False
     source_folder = Path(source_folder_path)
     output_folder = Path(output_folder_path)
@@ -235,9 +236,12 @@ def process_excel_files_in_folder(
     commu_files = sorted(source_folder.glob("*.xlsx"))
     if commu_files:
         commu_len = len(commu_files)
+        file_names = ", ".join(file.name for file in commu_files)
+        print(f"Processing files: {file_names}")
         if commu_len > 1:
             print(f"Found {commu_len} Excel files in {source_folder}.")
             print(f"Will run {max_parallel_files} in parallel.")
+            print("This may take a while, please be patient.")
         elif commu_len == 1:
             print(f"Found one Excel file in {source_folder}.")
             print("Running in single file mode.")
@@ -247,16 +251,15 @@ def process_excel_files_in_folder(
 
     translation_client = GeminiTranslationClient()
 
-    def process_file(source_file_path: Path) -> bool:
+    def process_file(source_file_path: Path) -> tuple[bool, int]:
         source_file_name = source_file_path.name
         output_file_path = output_folder / source_file_name
         translator = WorkbookTranslator(source_file=source_file_path,
                                         output_file=output_file_path,
                                         translation_client=translation_client,
                                         replace_single_term=replace_single_term)
-        print(f"\n--- Processing file: {source_file_name} ---")
-        print("This may take a while, please be patient.")
-        return translator.process()
+        saved = translator.process()
+        return saved, translator.translation_error_count
 
     worker_count = max(1, max_parallel_files)
 
@@ -267,17 +270,51 @@ def process_excel_files_in_folder(
         for future in tqdm(as_completed(futures),total=len(futures), desc="Translating files",  unit="file", disable=is_single_file):
             source_file_path = futures[future]
             try:
-                if future.result():
+                saved, translation_error_count = future.result()
+                if saved:
                     processed_count += 1
+                if translation_error_count > 0:
+                    files_with_translation_errors.append((source_file_path, translation_error_count))
             except Exception as e:
-                print(f"Error processing {source_file_path.name}: {e}")
+                failed_files.append((source_file_path, e))
+                print(
+                    f"[{source_file_path.name}]: Error: failed processing due to "
+                    f"{e.__class__.__name__}: {str(e) or '<no message>'}. Skipping file..."
+                )
 
-    return processed_count
+    print_batch_summary(
+        processed_count=processed_count,
+        failed_files=failed_files,
+        files_with_translation_errors=files_with_translation_errors,
+    )
+    return processed_count, bool(failed_files or files_with_translation_errors)
+
+
+def print_batch_summary(
+    processed_count: int,
+    failed_files: list[tuple[Path, Exception]],
+    files_with_translation_errors: list[tuple[Path, int]],
+) -> None:
+    print(
+        f"\nScript finished. Saved {processed_count} files, "
+        f"{len(failed_files)} failed, "
+        f"{len(files_with_translation_errors)} saved with translation errors."
+    )
+
+    if files_with_translation_errors:
+        print("\nFiles with translation errors:")
+        for source_file_path, row_count in sorted(files_with_translation_errors):
+            row_label = "row contains" if row_count == 1 else "rows contain"
+            print(f"- {source_file_path}: {row_count} {row_label} TRANSLATION_ERROR")
+
+    if failed_files:
+        print("\nFailed files:")
+        for source_file_path, exception in sorted(failed_files):
+            print(f"- {source_file_path}: {exception.__class__.__name__}: {str(exception) or '<no message>'}")
 
 
 # --- Run the script ---
 if __name__ == "__main__":
     print("Starting Gakumas Commu Excel Batch Translator script...")
-    total_processed = process_excel_files_in_folder()
-    if total_processed > 0:
-        print(f"\nScript finished. Processed {total_processed} files.")
+    _, has_errors = process_excel_files_in_folder()
+    raise SystemExit(1 if has_errors else 0)
