@@ -34,13 +34,30 @@ Setup gcloud CLI and [Authenticate to the Platform](https://docs.cloud.google.co
 Then set the `GOOGLE_GENAI_USE_ENTERPRISE` variable to `True` in the `.env` file
 
 ### Other important configuration
-Depending on your API tier, your rate limits may vary, 
-therefore it is recommended to verify your limits and change them in `config/config.py`
+Depending on your API tier, your rate limits may vary.
+
+The script uses AI Studio free tier limits by default.
+
+To use the paid tier limits,  set the `PAID_TIER` variable in the `.env` file to `True` 
+
+This will increase the limits to Tier 1 ones.
+
 The default limits are as follows:
 ```
-    Requests per minute (GEMINI_RPM_LIMIT) - 10 
-    Tokens per minute (GEMINI_TPM_LIMIT) - 250,000
-    Requests per day (GEMINI_RPD_LIMIT) - 250
+    Limit - Free Tier / Tier 1
+    
+    Requests per minute (GEMINI_RPM_LIMIT):
+        Flash models:                              5 / 1000
+        Flash Lite models:                       15 / 4000
+        Pro models:                              0 / 25
+    Tokens per minute (GEMINI_TPM_LIMIT):
+        Flash models:                       250 000 / 2 000 000
+        Flash Lite models:                 250 000 / 4 000 000
+        Pro models:                             0 / 2 000 000
+    Requests per day (GEMINI_RPD_LIMIT):
+        Flash models:                          20 / 10 000
+        Flash Lite models:                   500 / 150 000
+        Pro models:                           0 / 250
 ```
 
 

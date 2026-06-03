@@ -1,13 +1,11 @@
 import threading
 
-from dotenv import load_dotenv
 from google import genai
 from google.genai.local_tokenizer import LocalTokenizer
-from google.genai.types import HttpOptions
 
 from config.config import ModelConfig
 from ai.utils import TranslationErrors, TokenBucketRateLimiter, DailyRequestLimiter
-load_dotenv()
+
 
 # ---------------------------------------------------------------------------------------------------------
 GeminiQuotaError = TranslationErrors.GeminiQuotaError
@@ -38,7 +36,7 @@ class GeminiTranslationClient:
         self.client: genai.Client | None = None
         self.model_name = model_name
         self.gen_config = gen_config
-        self.retry_options:HttpOptions = ModelConfig.RetryConfig.http_options
+        self.retry_options = ModelConfig.retry_options
         self.debug = debug
         self._client_lock = threading.Lock()
         self._request_limiter = TokenBucketRateLimiter(ModelConfig.GEMINI_RPM_LIMIT)

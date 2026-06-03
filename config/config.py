@@ -1,39 +1,67 @@
-from google.genai.types import GenerateContentConfig, HttpOptions, HttpRetryOptions, ThinkingConfig, ThinkingLevel
+import os
+
+from dataclasses import dataclass
+
+from dotenv import load_dotenv
+
+from google.genai.types import GenerateContentConfig, HttpOptions, HttpRetryOptions, ThinkingConfig, ThinkingLevel, \
+    ServiceTier
 
 from ai.Models import TranslationResponse
 from config.prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
 
+load_dotenv()
 
+@dataclass(frozen=True, slots=True)
 class ModelConfig:
-    gemini_model = "gemini-3.5-flash"
-
+    gemini_model = os.getenv('GEMINI_MODEL', 'gemini-3.5-flash')
+    is_paid_tier = os.getenv('PAID_TIER', False)
+    is_enterprise = os.getenv('GOOGLE_GENAI_USE_ENTERPRISE', False)
+    flex_mode_enabled = os.getenv('GOOGLE_GENAI_USE_FLEX_MODE', False)
+    usage_tier = 'enterprise' if is_enterprise else 'paid' if is_paid_tier else 'free'
     # Model Temperature - for Gemini 3 series, keep it at 1.0, for older models try 0.1-0.3
     temp = 1.0
 
     # Low thinking halves the quality of instruction following, so we set it to Medium
     thinking_level = ThinkingConfig(thinking_level=ThinkingLevel.MEDIUM)
 
-    generation_config = GenerateContentConfig(
-        temperature=temp,
-        system_instruction=TRANSLATION_SYSTEM_INSTRUCTIONS,
-        response_mime_type="application/json",
-        response_schema=TranslationResponse,
-        thinking_config=thinking_level,
-    )
+    # Allow the usage of Flex Mode for the API call to halve the API call cost
+    service_tier = ServiceTier.STANDARD if not flex_mode_enabled else ServiceTier.FLEX
 
-    # Rate limit configs
-    # These defaults are based on conservative Google AI Studio limits,
-    # it is recommended to check your limits and set them here.
-    GEMINI_RPM_LIMIT = 10
-    GEMINI_TPM_LIMIT = 250_000
-    GEMINI_RPD_LIMIT = 250
+    @staticmethod
+    def _get_rate_limits(model_name, usage_tier):
+        if usage_tier == 'free' and '-pro' in model_name:
+            raise ValueError("Pro models are only available for paid tiers.")
+        rpm_limit = 5
+        tpm_limit = 250_000
+        rpd_limit = 20
 
-    class RetryConfig:
-        # Use to enable Flex Mode Billing for Vertex AI API calls.
-        flex_mode = False
-        flex_mode_headers = {"X-Vertex-AI-LLM-Request-Type": "shared", "X-Vertex-AI-LLM-Shared-Request-Type": "flex"}
-        # Response timeout for the API call in milliseconds.
-        timeout = 120 * 1000
+        rate_limits_free_tier = {
+            'flash-lite': [15, 250_000, 500],
+            'flash': [5, 250_000, 20],
+        }
+        rate_limits_paid_tier = {
+            'flash-lite': [4000, 4_000_000, 150_000],
+            'flash': [1000, 2_000_000, 10_000],
+            'pro': [25,2_000_000,250]
+        }
+        rate_limits_enterprise = {
+            'flash-lite': [30_000, 2,000,000, 150_000],
+            'flash': [30_000, 2,000,000, 10_000],
+            'pro': [30_000,	500_000,10_000]
+        }
+        rate_limits = rate_limits_free_tier if usage_tier == 'free' else rate_limits_paid_tier if usage_tier == 'paid' else rate_limits_enterprise
+
+        for model, limit in rate_limits.items():
+            if model in model_name:
+                rpm_limit, tpm_limit, rpd_limit = limit
+                break
+        return rpm_limit, tpm_limit, rpd_limit
+
+    @staticmethod
+    def _get_retry_config(is_flex_mode=False):
+        # Response timeout for the API call in milliseconds. Higher in flex mode.
+        timeout = 120 * 1000 if not is_flex_mode else 10 * 60 * 1000
         # Max retries for the API call.
         max_attempts = 5
         # Exponential backoff config for retries.
@@ -45,7 +73,6 @@ class ModelConfig:
         http_status_codes = [408, 429, 500, 502, 503, 504]
 
         http_options = HttpOptions(
-            headers=flex_mode_headers if flex_mode else None,
             timeout=timeout,
             retry_options=HttpRetryOptions(
                 initial_delay=initial_delay,
@@ -56,6 +83,19 @@ class ModelConfig:
                 http_status_codes=http_status_codes,
             ),
         )
+        return http_options
+
+    generation_config = GenerateContentConfig(
+        temperature=temp,
+        system_instruction=TRANSLATION_SYSTEM_INSTRUCTIONS,
+        response_mime_type="application/json",
+        response_schema=TranslationResponse,
+        thinking_config=thinking_level,
+        service_tier=service_tier
+    )
+
+    GEMINI_RPM_LIMIT, GEMINI_TPM_LIMIT, GEMINI_RPD_LIMIT = _get_rate_limits(gemini_model,usage_tier)
+    retry_options = _get_retry_config(is_flex_mode=flex_mode_enabled)
 
 
 class TranslatorConfig:
