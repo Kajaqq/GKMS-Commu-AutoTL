@@ -2,8 +2,6 @@
 ## Project Structure & Module Organization
 
 This is a small Python excel file translation tool. It reads input `.xlsx` files from `IN/`, translates their contents using Gemini API, and writes the translated output to `OUT/`.
-This exact branch focuses on the rewrite of the translation and xlsx processing logic.
-Important: changes to `utils/formatting.py` are out-of-scope for this branch!
 
 Source modules live at the repository root:
 

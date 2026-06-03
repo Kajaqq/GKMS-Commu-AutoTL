@@ -4,8 +4,7 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
-from google.genai.types import GenerateContentConfig, HttpOptions, HttpRetryOptions, ThinkingConfig, ThinkingLevel, \
-    ServiceTier
+from google.genai.types import GenerateContentConfig, HttpOptions, HttpRetryOptions, ThinkingConfig, ThinkingLevel
 
 from ai.Models import TranslationResponse
 from config.prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
