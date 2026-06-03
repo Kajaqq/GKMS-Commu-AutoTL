@@ -13,7 +13,7 @@ models, `config/` owns prompts and constants, and `utils/` owns parsing, cleanup
 
 The project keeps the Excel workbook contract explicit and stable while letting translation quality improve through
 prompt context, structured Gemini output, and deterministic post-processing. The model receives only relevant glossary
-and character-style references for the current batch, then Pydantic validation catches malformed, duplicate, unexpected,
+and character-style references for the current batch, then response parsing catches malformed, duplicate, unexpected,
 missing, and empty translations before results are written back to the workbook.
 
 ## Where
@@ -22,7 +22,7 @@ missing, and empty translations before results are written back to the workbook.
 - `ai/translator.py`: Gemini client selection, request execution, token counting, and local rate-limit acquisition.
 - `ai/utils.py`: thread-safe request/token/day limiters and translation-specific exceptions.
 - `ai/Models.py`: dataclass prompt objects plus Pydantic response schemas and line-number validation.
-- `config/config.py`: Gemini model/generation/retry config, folder paths, Excel headers, quota caps, and formatting rules.
+- `config/config.py`: env-driven Gemini model/tier/retry config, folder paths, Excel headers, quota caps, and formatting rules.
 - `config/prompts.py`: system instruction, batch prompt template, and per-line prompt format.
 - `config/dictionary.py`: canonical Japanese term/name translations.
 - `config/character_styles.py`: character voice guidance keyed by English display names with Japanese aliases.
@@ -72,9 +72,8 @@ WorkbookTranslator.process()
   |     |     - renders config/prompts.py templates with source lines and references
   |     |
   |     +--> GeminiTranslationClient.translate_batch()
-  |           - loads .env
-  |           - uses AI_STUDIO_API_KEY when present
-  |           - otherwise creates a google-genai enterprise client
+  |           - lazily creates genai.Client(http_options=retry_options)
+  |           - lets google-genai resolve auth/backend settings from the environment
   |           - counts local prompt tokens
   |           - acquires local RPM, TPM, and RPD limits
   |           - calls client.models.generate_content()
@@ -94,6 +93,11 @@ WorkbookTranslator.process()
   +--> save()
         - creates OUT/ if needed
         - saves translated workbook under the source file name
+
+process_excel_files_in_folder()
+  - records failed files and files saved with TRANSLATION_ERROR rows
+  - prints a batch summary
+  - returns a processed-file count and an error flag used for the CLI exit code
 ```
 
 ## Workbook Contract
@@ -116,17 +120,22 @@ Merged cells in the target column are skipped because the tool cannot reliably w
 
 ## Gemini Integration
 
-The code uses the current `google-genai` SDK. `config/config.py` defines the configured model, system instruction,
-JSON MIME type, Pydantic response schema, thinking config, timeout, and retry policy. `ai/translator.py` handles client
-creation and request execution.
+The code uses the current `google-genai` SDK. `config/config.py` loads `.env` and defines the configured model, local
+usage tier, system instruction, JSON MIME type, Pydantic response schema, thinking config, service tier, timeout, and
+retry policy. `ai/translator.py` handles lazy client creation and request execution with
+`genai.Client(http_options=ModelConfig.retry_options)`.
 
-Authentication is selected at runtime based on the enviroment:
+Authentication/backend selection is delegated to the SDK environment handling. `.env.sample` documents the repo-level
+settings:
 
-- If `GOOGLE_GENAI_USE_ENTERPRISE` is set to `True`, it attemps to use Enterprise client via ADC authentication.
-- If `GEMINI_API_KEY` exists, the client uses Google AI Studio API-key authentication.
+- `GEMINI_API_KEY` for Google AI Studio API-key authentication.
+- `GOOGLE_GENAI_USE_ENTERPRISE=True` for the enterprise/ADC path and enterprise local quota tier.
+- `PAID_TIER=True` to use paid-tier local quota caps when not in enterprise mode.
+- `GOOGLE_GENAI_USE_FLEX_MODE=True` to request the flex service tier and use the longer flex timeout.
 
 Local quota controls are process-local and shared by the single `GeminiTranslationClient` passed to worker threads.
-They prevent bursts across parallel workbook processing but are not a distributed quota system.
+They prevent bursts across parallel workbook processing but are not a distributed quota system. Daily request limits
+reset at Pacific midnight.
 
 ## Validation And Error Handling
 
@@ -172,3 +181,5 @@ Before writing a translation, `wrap_text()` applies deterministic cleanup and wr
 - Full end-to-end runs call Gemini and require credentials, network access, and quota budget.
 - Parallel workers share a client and local limiters, but workbook processing still writes one output file per source
   file and should not target the same output path from multiple jobs.
+- Boolean-like environment values are read as strings, so unset variables are the safe default. Values such as
+  `False` are still truthy in current config code.
