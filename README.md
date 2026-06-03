@@ -44,33 +44,34 @@ This will increase the limits to Tier 1 ones.
 
 The default limits are as follows:
 ```
-    Limit - Free Tier / Tier 1
-    
-    Requests per minute (GEMINI_RPM_LIMIT):
-        Flash models:                              5 / 1000
-        Flash Lite models:                       15 / 4000
-        Pro models:                              0 / 25
-    Tokens per minute (GEMINI_TPM_LIMIT):
-        Flash models:                       250 000 / 2 000 000
-        Flash Lite models:                 250 000 / 4 000 000
-        Pro models:                             0 / 2 000 000
-    Requests per day (GEMINI_RPD_LIMIT):
-        Flash models:                          20 / 10 000
-        Flash Lite models:                   500 / 150 000
-        Pro models:                           0 / 250
+Requests per minute (GEMINI_RPM_LIMIT)
+  Model               Free Tier  Tier 1
+  Flash models        5          1 000
+  Flash Lite models   15         4 000
+  Pro models          0          25
+
+Tokens per minute (GEMINI_TPM_LIMIT)
+  Model               Free Tier  Tier 1
+  Flash models        250 000    2 000 000
+  Flash Lite models   250 000    4 000 000
+  Pro models          0          2 000 000
+
+Requests per day (GEMINI_RPD_LIMIT)
+  Model               Free Tier  Tier 1
+  Flash models        20         10 000
+  Flash Lite models   500        150 000
+  Pro models          0          250
 ```
 
-
 ## TODO:
-  - ~~Unslopify the `process_excel_files.py`~~  Done, moved to a WorkbookTranslator class.
-  - ~~Load the speaking styles dynamically, based on which characters are in a given commu.~~ Done.
-  - ~~Add a QC gate to check if the rules are followed~~ Done, migrated to Pydantic for validation.
-  - ~~Improve the translator logic:~~ Done
-    - ~~Allow translating multiple files in parallel.~~  
-      - ~~Show visible progress.~~ 
-      - ~~Implement rate limit logic~~
-    - ~~Add retry logic~~ 
-    - ~~Add better error handling.~~ 
-  - ~~Add a better way to detect Vertex AI support.~~ Done.
-  - Add a way to sync with Google Sheets.
-  
+1. [x] Rewrite `process_excel_files.py` 
+2. [x] Load the speaking styles dynamically, based on which characters are in a given commu.
+3. [x] Add a QC gate to check if the rules are followed~~ Done, migrated to Pydantic for validation.
+4. [x] Improve the translator logic:
+    - [x] Allow translating multiple files in parallel.  
+      - [x] Show visible progress.
+      - [x] Implement rate limit logic
+    - [x] Add retry logic 
+    - [x] Add better error handling.
+5. [x] Add a better way to detect Vertex AI support.
+6. [ ] Add a way to sync with Google Sheets.
