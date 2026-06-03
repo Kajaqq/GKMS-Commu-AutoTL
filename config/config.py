@@ -1,12 +1,9 @@
-from dataclasses import dataclass
-
 from google.genai.types import GenerateContentConfig, HttpOptions, HttpRetryOptions, ThinkingConfig, ThinkingLevel
 
 from ai.Models import TranslationResponse
 from config.prompts import TRANSLATION_SYSTEM_INSTRUCTIONS
 
 
-@dataclass(frozen=True, slots=True)
 class ModelConfig:
     gemini_model = "gemini-3.5-flash"
 
@@ -24,14 +21,17 @@ class ModelConfig:
         thinking_config=thinking_level,
     )
 
+    # Rate limit configs
+    # These defaults are based on conservative Google AI Studio limits,
+    # it is recommended to check your limits and set them here.
+    GEMINI_RPM_LIMIT = 10
+    GEMINI_TPM_LIMIT = 250_000
+    GEMINI_RPD_LIMIT = 250
+
     class RetryConfig:
         # Use to enable Flex Mode Billing for Vertex AI API calls.
         flex_mode = False
-        flex_mode_headers = {
-            "X-Vertex-AI-LLM-Request-Type": "shared",
-            "X-Vertex-AI-LLM-Shared-Request-Type": "flex"
-        }
-
+        flex_mode_headers = {"X-Vertex-AI-LLM-Request-Type": "shared", "X-Vertex-AI-LLM-Shared-Request-Type": "flex"}
         # Response timeout for the API call in milliseconds.
         timeout = 120 * 1000
         # Max retries for the API call.
@@ -53,7 +53,9 @@ class ModelConfig:
                 max_delay=max_delay,
                 exp_base=exp_base,
                 jitter=jitter,
-                http_status_codes=http_status_codes,),)
+                http_status_codes=http_status_codes,
+            ),
+        )
 
 
 class TranslatorConfig:
@@ -69,19 +71,14 @@ class TranslatorConfig:
     # If True, if source_text = key in `NAME_TERM_TRANSLATIONS' translated_text = value
     # This skips sending the line to the API, and can cause loss of context/quality for weaker models.
     REPLACE_SINGLE_TERM = False
-    
+
     # Translation error messages
     TRANSLATION_ERROR_SIGN = "TRANSLATION_ERROR:"
     EMPTY_RESPONSE_ERROR = f"{TRANSLATION_ERROR_SIGN} API returned empty response."
     MISSING_LINE_NUMBER_ERROR = f"{TRANSLATION_ERROR_SIGN} API didn't return this line number."
 
-    # Parallel file processing and Gemini local rate-limit controls.
+    # How many file can be translated at once
     MAX_PARALLEL_FILES = 5
-    # These defaults are based on conservative Google AI Studio limits. Set to 0 to disable a local limiter.
-    # Vertex AI limits can be dynamic, but these caps still prevent local worker bursts.
-    GEMINI_RPM_LIMIT = 10
-    GEMINI_TPM_LIMIT = 250_000
-    GEMINI_RPD_LIMIT = 250
 
 
 class ExcelConfig:

@@ -1,11 +1,11 @@
-import os
 import threading
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai.local_tokenizer import LocalTokenizer
+from google.genai.types import HttpOptions
 
-from config.config import ModelConfig, TranslatorConfig
+from config.config import ModelConfig
 from ai.utils import TranslationErrors, TokenBucketRateLimiter, DailyRequestLimiter
 load_dotenv()
 
@@ -16,9 +16,8 @@ GeminiEmptyResponseError = TranslationErrors.GeminiEmptyResponseError
 def get_token_count(prompt):
     tokenizer = LocalTokenizer(model_name="gemini-3-pro-preview")
     token_count = tokenizer.count_tokens(prompt)
-    if prompt_tokens := token_count.prompt_token_count:
-        return prompt_tokens
-    else:
+    prompt_tokens = token_count.total_tokens
+    if not token_count or not prompt_tokens:
         import math
         chars_per_token = 4
         prompt_tokens = math.ceil(len(prompt) / chars_per_token)
@@ -32,19 +31,6 @@ def print_debug(batch_prompt, model_name, generation_config):
         f"System Instruction:\n{generation_config.system_instruction}\n"
         f"Batch prompt:\n{batch_prompt}"
     )
-
-def get_client() -> genai.Client:
-    api_key = os.getenv("AI_STUDIO_API_KEY")
-    http_options = ModelConfig.RetryConfig.http_options
-    if api_key:
-        client = genai.Client(api_key=api_key, http_options=http_options)
-        return client
-    else:
-        try:
-            client = genai.Client(enterprise=True, http_options=http_options)
-        except ValueError:
-            raise ValueError("Enterprise credentials or an API key must be provided to use the API")
-        return client
 # ---------------------------------------------------------------------------------------------------------
 
 class GeminiTranslationClient:
@@ -52,11 +38,12 @@ class GeminiTranslationClient:
         self.client: genai.Client | None = None
         self.model_name = model_name
         self.gen_config = gen_config
+        self.retry_options:HttpOptions = ModelConfig.RetryConfig.http_options
         self.debug = debug
         self._client_lock = threading.Lock()
-        self._request_limiter = TokenBucketRateLimiter(TranslatorConfig.GEMINI_RPM_LIMIT)
-        self._input_token_limiter = TokenBucketRateLimiter(TranslatorConfig.GEMINI_TPM_LIMIT)
-        self._daily_request_limiter = DailyRequestLimiter(TranslatorConfig.GEMINI_RPD_LIMIT)
+        self._request_limiter = TokenBucketRateLimiter(ModelConfig.GEMINI_RPM_LIMIT)
+        self._input_token_limiter = TokenBucketRateLimiter(ModelConfig.GEMINI_TPM_LIMIT)
+        self._daily_request_limiter = DailyRequestLimiter(ModelConfig.GEMINI_RPD_LIMIT)
 
     def translate_batch(self, batch_prompt) -> str:
         """Calls Gemini with one workbook-sized translation prompt."""
@@ -87,8 +74,8 @@ class GeminiTranslationClient:
     def _get_client(self) -> genai.Client:
         if self.client is not None:
             return self.client
-        else:
-            with self._client_lock:
-                if self.client is not None:
-                    self.client = get_client()
-                return self.client
+
+        with self._client_lock:
+            if self.client is None:
+                self.client = genai.Client(http_options=self.retry_options)
+            return self.client

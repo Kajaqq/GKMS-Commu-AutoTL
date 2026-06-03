@@ -1,4 +1,3 @@
-from pydantic import ValidationError
 
 from config.character_styles import CHARACTER_SPEAKING_STYLES
 from config.dictionary import NAME_TERM_TRANSLATIONS
@@ -27,7 +26,7 @@ def get_prompt_references(source_lines: list[SourceLine]) -> PromptReferences:
 
 def parse_translation_response(response_text: str, expected_line_numbers: set[int]) -> dict[int, str]:
     """
-    Validates the recieved translations and checks for empty lines.
+    Validates the received translations and checks for empty lines.
     """
     response = TranslationResponse.model_validate_json(
             response_text,

@@ -31,6 +31,7 @@ def validate_header_row(sheet):
     Checks if the header row is present and contains the expected headers
     """
     sheet_header = [normalize_cell(cell.value) for cell in sheet[1]]
+    sheet_header = sheet_header[:filled_rows]
     if sheet_header != expected_header:
         raise InvalidHeaderException(
                 f"Header row has incorrect headers: "
