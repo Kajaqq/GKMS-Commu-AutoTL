@@ -1,4 +1,5 @@
 import threading
+import warnings
 
 from google import genai
 from google.genai.local_tokenizer import LocalTokenizer
@@ -13,7 +14,12 @@ GeminiEmptyResponseError = TranslationErrors.GeminiEmptyResponseError
 
 def get_token_count(prompt):
     tokenizer = LocalTokenizer(model_name="gemini-3-pro-preview")
-    token_count = tokenizer.count_tokens(prompt)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="The SDK's local tokenizer implementation is experimental and may change in the future.*",
+        )
+        token_count = tokenizer.count_tokens(prompt)
     prompt_tokens = token_count.total_tokens
     if not token_count or not prompt_tokens:
         import math

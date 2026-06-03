@@ -18,6 +18,7 @@ class ModelConfig:
     is_paid_tier = os.getenv('PAID_TIER', False)
     is_enterprise = os.getenv('GOOGLE_GENAI_USE_ENTERPRISE', False)
     flex_mode_enabled = os.getenv('GOOGLE_GENAI_USE_FLEX_MODE', False)
+
     usage_tier = 'enterprise' if is_enterprise else 'paid' if is_paid_tier else 'free'
     # Model Temperature - for Gemini 3 series, keep it at 1.0, for older models try 0.1-0.3
     temp = 1.0
@@ -46,8 +47,8 @@ class ModelConfig:
             'pro': [25,2_000_000,250]
         }
         rate_limits_enterprise = {
-            'flash-lite': [30_000, 2,000,000, 150_000],
-            'flash': [30_000, 2,000,000, 10_000],
+            'flash-lite': [30_000, 2_000_000, 150_000],
+            'flash': [30_000, 2_000_000, 10_000],
             'pro': [30_000,	500_000,10_000]
         }
         rate_limits = rate_limits_free_tier if usage_tier == 'free' else rate_limits_paid_tier if usage_tier == 'paid' else rate_limits_enterprise
