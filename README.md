@@ -66,7 +66,7 @@ Requests per day (GEMINI_RPD_LIMIT)
 ## TODO:
 1. [x] Rewrite `process_excel_files.py` 
 2. [x] Load the speaking styles dynamically, based on which characters are in a given commu.
-3. [x] Add a QC gate to check if the rules are followed~~ Done, migrated to Pydantic for validation.
+3. [x] Add a QC gate to check if the rules are followed
 4. [x] Improve the translator logic:
     - [x] Allow translating multiple files in parallel.  
       - [x] Show visible progress.
