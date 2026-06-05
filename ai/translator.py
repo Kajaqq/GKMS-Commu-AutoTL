@@ -10,6 +10,7 @@ from ai.utils import TranslationErrors, TokenBucketRateLimiter, DailyRequestLimi
 
 # ---------------------------------------------------------------------------------------------------------
 GeminiQuotaError = TranslationErrors.GeminiQuotaError
+GeminiDailyQuotaExhaustedError = TranslationErrors.GeminiDailyQuotaExhaustedError
 GeminiEmptyResponseError = TranslationErrors.GeminiEmptyResponseError
 
 def get_token_count(prompt):
@@ -45,21 +46,21 @@ class GeminiTranslationClient:
         self.retry_options = ModelConfig.retry_options
         self.debug = debug
         self._client_lock = threading.Lock()
-        self._request_limiter = TokenBucketRateLimiter(ModelConfig.GEMINI_RPM_LIMIT)
-        self._input_token_limiter = TokenBucketRateLimiter(ModelConfig.GEMINI_TPM_LIMIT)
-        self._daily_request_limiter = DailyRequestLimiter(ModelConfig.GEMINI_RPD_LIMIT)
+        self._fallback_lock = threading.Lock()
+        self._fallback_models = list(ModelConfig.fallback_models)
+        self._set_rate_limiters(model_name)
 
     def translate_batch(self, batch_prompt) -> str:
         """Calls Gemini with one workbook-sized translation prompt."""
         prompt_text = str(batch_prompt)
-        if self.debug:
-            print_debug(prompt_text, self.model_name, self.gen_config)
         client = self._get_client()
         input_token_count = get_token_count(prompt_text)
-        self._acquire_rate_limits(input_token_count)
+        model_name = self._acquire_rate_limits(input_token_count)
+        if self.debug:
+            print_debug(prompt_text, model_name, self.gen_config)
 
         response = client.models.generate_content(
-                model=self.model_name,
+                model=model_name,
                 contents=prompt_text,
                 config=self.gen_config,
         )
@@ -69,11 +70,46 @@ class GeminiTranslationClient:
         else:
             raise GeminiEmptyResponseError("No response text returned from Gemini API")
 
-    def _acquire_rate_limits(self, input_tokens: int) -> None:
-        self._input_token_limiter.acquire(input_tokens)
-        self._daily_request_limiter.acquire()
-        self._request_limiter.acquire(1)
-        self._input_token_limiter.validate_capacity(input_tokens)
+    def _acquire_rate_limits(self, input_tokens: int) -> str:
+        while True:
+            model_name = self.model_name
+            try:
+                self._input_token_limiter.validate_capacity(input_tokens)
+                self._daily_request_limiter.acquire()
+                self._request_limiter.acquire(1)
+                self._input_token_limiter.acquire(input_tokens)
+            except GeminiDailyQuotaExhaustedError as error:
+                if not self._switch_to_fallback_model(error, model_name):
+                    raise
+            else:
+                return model_name
+
+    def _set_rate_limiters(self, model_name: str) -> None:
+        rpm_limit, tpm_limit, rpd_limit = ModelConfig._get_rate_limits(model_name, ModelConfig.usage_tier)
+        self._request_limiter = TokenBucketRateLimiter(rpm_limit)
+        self._input_token_limiter = TokenBucketRateLimiter(tpm_limit)
+        self._daily_request_limiter = DailyRequestLimiter(rpd_limit)
+
+    def _switch_to_fallback_model(self, error: GeminiDailyQuotaExhaustedError, exhausted_model: str) -> bool:
+        with self._fallback_lock:
+            if self.model_name != exhausted_model:
+                return True
+
+            while self._fallback_models:
+                fallback_model = self._fallback_models.pop(0)
+                if fallback_model == self.model_name:
+                    continue
+
+                answer = input(f"{error}\nUse fallback model {fallback_model}? [y/N]: ").strip().lower()
+                if answer not in {"y", "yes"}:
+                    continue
+
+                self.model_name = fallback_model
+                self._set_rate_limiters(fallback_model)
+                print(f"Switched to fallback model: {fallback_model}")
+                return True
+
+            return False
 
     def _get_client(self) -> genai.Client:
         if self.client is not None:
