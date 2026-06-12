@@ -72,12 +72,17 @@ class GeminiTranslationClient:
 
     def _acquire_rate_limits(self, input_tokens: int) -> str:
         while True:
-            model_name = self.model_name
+            with self._fallback_lock:
+                model_name = self.model_name
+                input_token_limiter = self._input_token_limiter
+                daily_request_limiter = self._daily_request_limiter
+                request_limiter = self._request_limiter
+
             try:
-                self._input_token_limiter.validate_capacity(input_tokens)
-                self._daily_request_limiter.acquire()
-                self._request_limiter.acquire(1)
-                self._input_token_limiter.acquire(input_tokens)
+                input_token_limiter.validate_capacity(input_tokens)
+                daily_request_limiter.acquire()
+                request_limiter.acquire(1)
+                input_token_limiter.acquire(input_tokens)
             except GeminiDailyQuotaExhaustedError as error:
                 if not self._switch_to_fallback_model(error, model_name):
                     raise
@@ -85,10 +90,13 @@ class GeminiTranslationClient:
                 return model_name
 
     def _set_rate_limiters(self, model_name: str) -> None:
+        self._request_limiter, self._input_token_limiter, self._daily_request_limiter = self._create_rate_limiters(
+            model_name
+        )
+
+    def _create_rate_limiters(self, model_name: str) -> tuple[TokenBucketRateLimiter, TokenBucketRateLimiter, DailyRequestLimiter]:
         rpm_limit, tpm_limit, rpd_limit = ModelConfig._get_rate_limits(model_name, ModelConfig.usage_tier)
-        self._request_limiter = TokenBucketRateLimiter(rpm_limit)
-        self._input_token_limiter = TokenBucketRateLimiter(tpm_limit)
-        self._daily_request_limiter = DailyRequestLimiter(rpd_limit)
+        return TokenBucketRateLimiter(rpm_limit), TokenBucketRateLimiter(tpm_limit), DailyRequestLimiter(rpd_limit)
 
     def _switch_to_fallback_model(self, error: GeminiDailyQuotaExhaustedError, exhausted_model: str) -> bool:
         with self._fallback_lock:
@@ -100,12 +108,18 @@ class GeminiTranslationClient:
                 if fallback_model == self.model_name:
                     continue
 
-                answer = input(f"{error}\nUse fallback model {fallback_model}? [y/N]: ").strip().lower()
+                try:
+                    answer = input(f"{error}\nUse fallback model {fallback_model}? [y/N]: ").strip().lower()
+                except EOFError:
+                    return False
                 if answer not in {"y", "yes"}:
                     continue
 
+                request_limiter, input_token_limiter, daily_request_limiter = self._create_rate_limiters(fallback_model)
                 self.model_name = fallback_model
-                self._set_rate_limiters(fallback_model)
+                self._request_limiter = request_limiter
+                self._input_token_limiter = input_token_limiter
+                self._daily_request_limiter = daily_request_limiter
                 print(f"Switched to fallback model: {fallback_model}")
                 return True
 
