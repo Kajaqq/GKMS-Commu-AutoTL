@@ -39,6 +39,10 @@ Then set the `GOOGLE_GENAI_USE_ENTERPRISE` variable to `True` in the `.env` file
 
 Depending on your API tier, your rate limits may vary.  The script uses AI Studio free tier limits by default.
 
+Set `GEMINI_MODEL` in `.env` to choose the primary model. You can also set `FALLBACK_MODEL` to one or two fallback
+models separated by a comma. If the script reaches the local daily request limit for the current model, it asks whether
+to switch to the next fallback model and then uses that model's local rate limits.
+
 To use the paid tier limits, set the `PAID_TIER` variable in the `.env` file to `True`. 
 This will increase the limits to Tier 1 ones.
 

@@ -14,6 +14,7 @@ load_dotenv()
 @dataclass(frozen=True, slots=True)
 class ModelConfig:
     gemini_model = os.getenv('GEMINI_MODEL', 'gemini-3.5-flash')
+    fallback_models = tuple(model.strip() for model in os.getenv('FALLBACK_MODEL', '').split(',') if model.strip())[:2]
     is_paid_tier = os.getenv('AI_STUDIO_PAID_TIER', False)
     is_enterprise = os.getenv('GOOGLE_GENAI_USE_ENTERPRISE', False)
     flex_mode_enabled = os.getenv('GOOGLE_GENAI_USE_FLEX_MODE', False)

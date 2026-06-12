@@ -76,6 +76,8 @@ WorkbookTranslator.process()
   |           - lets google-genai resolve auth/backend settings from the environment
   |           - counts local prompt tokens
   |           - acquires local RPM, TPM, and RPD limits
+  |           - prompts for a configured fallback model when the local daily request limit is exhausted
+  |           - rebuilds local RPM, TPM, and RPD limiters for the selected fallback model
   |           - calls client.models.generate_content()
   |           - requests application/json matching TranslationResponse
   |
@@ -120,22 +122,25 @@ Merged cells in the target column are skipped because the tool cannot reliably w
 
 ## Gemini Integration
 
-The code uses the current `google-genai` SDK. `config/config.py` loads `.env` and defines the configured model, local
-usage tier, system instruction, JSON MIME type, Pydantic response schema, thinking config, service tier, timeout, and
-retry policy. `ai/translator.py` handles lazy client creation and request execution with
+The code uses the current `google-genai` SDK. `config/config.py` loads `.env` and defines the configured model, optional
+fallback models, local usage tier, system instruction, JSON MIME type, Pydantic response schema, thinking config,
+service tier, timeout, and retry policy. `ai/translator.py` handles lazy client creation and request execution with
 `genai.Client(http_options=ModelConfig.retry_options)`.
 
 Authentication/backend selection is delegated to the SDK environment handling. `.env.sample` documents the repo-level
 settings:
 
 - `GEMINI_API_KEY` for Google AI Studio API-key authentication.
+- `FALLBACK_MODEL` for one or two comma-separated fallback models offered when the current model's local daily request
+  limit is exhausted.
 - `GOOGLE_GENAI_USE_ENTERPRISE=True` for the enterprise/ADC path and enterprise local quota tier.
 - `PAID_TIER=True` to use paid-tier local quota caps when not in enterprise mode.
 - `GOOGLE_GENAI_USE_FLEX_MODE=True` to request the flex service tier and use the longer flex timeout.
 
 Local quota controls are process-local and shared by the single `GeminiTranslationClient` passed to worker threads.
 They prevent bursts across parallel workbook processing but are not a distributed quota system. Daily request limits
-reset at Pacific midnight.
+reset at Pacific midnight. When a fallback model is accepted, the shared client switches to that model and rebuilds its
+process-local RPM, TPM, and RPD limiters from that model's configured limits.
 
 ## Validation And Error Handling
 
