@@ -1,7 +1,7 @@
-# GKMS-Commu-AutoTL
+# Gakuen Translator
 
-A script to automatically translate Gakumas commus using the Gemini API.
-Work in progress.
+A script to automatically translate Gakuen Idolmaster story files using the Gemini API.
+It implements context aware prompts to preserve individual personas, speaking styles and canonical terminology.
 
 ## Requirements
 This script uses the uv package manager.
@@ -78,4 +78,3 @@ Requests per day (GEMINI_RPD_LIMIT)
     - [x] Add retry logic 
     - [x] Add better error handling.
 5. [x] Add a better way to detect Vertex AI support.
-6. [ ] Add a way to sync with Google Sheets.
